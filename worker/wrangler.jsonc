@@ -13,8 +13,7 @@
     {
       "binding": "DB",
       "database_name": "lunear_games",
-      // Placeholder — real id created and wired in S2/S10.
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "ca24a851-f7f2-4887-a232-e40dfc318c20"
     }
   ],
   "durable_objects": {
@@ -26,6 +25,10 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["GameTableDO"] },
     { "tag": "v2", "new_sqlite_classes": ["LobbyDO"] }
+  ],
+  "routes": [
+    { "pattern": "lunear.org", "custom_domain": true },
+    { "pattern": "www.lunear.org", "custom_domain": true }
   ],
   "assets": {
     "directory": "../web/dist",

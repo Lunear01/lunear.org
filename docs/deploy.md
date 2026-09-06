@@ -1,33 +1,40 @@
 # Deploying
 
-## Required GitHub secrets
+Deploys run through Cloudflare, not GitHub Actions. `.github/workflows/ci.yml`
+remains the test gate on every PR and push to `main`.
 
-- `CLOUDFLARE_API_TOKEN` — token with Workers Scripts (edit) and D1 (edit) permissions.
-- `CLOUDFLARE_ACCOUNT_ID` — the Cloudflare account ID the Worker and D1 database live in.
+## Current setup (done)
 
-## One-time setup
+- D1 database `lunear_games` (`ca24a851-f7f2-4887-a232-e40dfc318c20`), id wired
+  in `worker/wrangler.jsonc`; migrations applied with
+  `npx wrangler d1 migrations apply lunear_games --remote` from `worker/`.
+- `ADMIN_PASSWORD` set as a Worker secret (`npx wrangler secret put ADMIN_PASSWORD`).
+  The `admin` account seeds itself with this password on first auth request.
+- Custom domains `lunear.org` and `www.lunear.org` attached to the
+  `lunear-games-worker` Worker.
 
-1. Create the D1 database:
-   ```
-   npx wrangler d1 create lunear_games
-   ```
-   Copy the returned `database_id` and paste it over the placeholder
-   (`00000000-0000-0000-0000-000000000000`) in `worker/wrangler.jsonc`.
+## Manual deploy
 
-2. Set the admin password as a Worker secret (not in CI):
-   ```
-   npx wrangler secret put ADMIN_PASSWORD --config worker/wrangler.jsonc
-   ```
+```
+npm run build                 # repo root: builds web/dist, typechecks worker
+cd worker
+npx wrangler d1 migrations apply lunear_games --remote   # when new migrations exist
+npx wrangler deploy
+```
 
-3. Add the two GitHub secrets above under repo Settings → Secrets and variables → Actions.
+## Auto-deploy on push (Workers Builds)
 
-## How a deploy flows
+Connect the repo once in the Cloudflare dashboard: Workers & Pages →
+`lunear-games-worker` → Settings → Builds → Connect → GitHub repo
+`Lunear01/lunear.org`, then set:
 
-- Every pull request and push to `main` runs `.github/workflows/ci.yml`: install,
-  generate `worker/worker-configuration.d.ts` (`npm run types -w worker`), typecheck,
-  test, build.
-- A push to `main` additionally runs `.github/workflows/deploy.yml`: re-runs
-  typecheck/test as a gate, builds the web assets, applies D1 migrations
-  (`wrangler d1 migrations apply lunear_games --remote`), then deploys
-  (`wrangler deploy`) — both from `worker/`.
-- No manual deploy step is required once the one-time setup above is done.
+- Build command: `npm ci && npm run build && npx wrangler d1 migrations apply lunear_games --remote`
+- Deploy command: `npx wrangler deploy`
+- Root directory: `/` (build command runs at repo root; wrangler picks up
+  `worker/wrangler.jsonc` via `--config` — set deploy command to
+  `npx wrangler deploy --config worker/wrangler.jsonc` if the root-dir default
+  cannot find it, or set root directory to `worker` and prefix the build
+  command with `cd ..`).
+
+The build authenticates with a Cloudflare-generated token; no GitHub secrets
+are needed.
