@@ -11,7 +11,8 @@ export type ClientMessage =
   | { readonly type: "ready" }
   | { readonly type: "bid"; readonly amount: 1 | 2 | 3 }
   | { readonly type: "pass" }
-  | { readonly type: "play"; readonly cardIds: readonly string[] };
+  | { readonly type: "play"; readonly cardIds: readonly string[] }
+  | { readonly type: "leave" };
 
 /**
  * Runtime-validates an arbitrary decoded JSON payload into a ClientMessage.
@@ -28,6 +29,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return { type: "ready" };
     case "pass":
       return { type: "pass" };
+    case "leave":
+      return { type: "leave" };
     case "bid": {
       const amount = obj.amount;
       if (amount !== 1 && amount !== 2 && amount !== 3) return null;
@@ -76,6 +79,7 @@ export type ErrorCode =
   | "not-initialized"
   | "game-in-progress"
   | "no-active-hand"
+  | "table-aborted"
   | RejectionReason;
 
 export interface ErrorMessage {
@@ -92,4 +96,15 @@ export interface SettledMessage {
   readonly newBalance?: number;
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage;
+/**
+ * Sent once, the instant a hand is voided by a deliberate leave or a
+ * disconnect that outlasts the 30s reconnect grace (see GameTableDO). No
+ * settlement follows — the DO's own final `state` broadcast (view: null)
+ * arrives right after this and the table accepts no further game actions.
+ */
+export interface AbortedMessage {
+  readonly type: "aborted";
+  readonly leaver: { readonly seat: Seat; readonly username: string };
+}
+
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | AbortedMessage;

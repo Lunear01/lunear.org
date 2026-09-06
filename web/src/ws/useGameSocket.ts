@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { getGuestToken } from "../api/client";
 import type {
+  AbortedMessage,
   ClientMessage,
   ErrorMessage,
   RedactedView,
@@ -18,6 +19,11 @@ interface GameSocketState {
   view: RedactedView | null;
   error: ErrorMessage | null;
   settled: SettledMessage | null;
+  /** Set once, forever, the instant the table's hand is voided by a leave or
+   * a disconnect-grace expiry — an aborted table never resumes (see
+   * GameTableDO's abortHand doc comment), so unlike `settled` this never
+   * needs to clear again on a later round. */
+  aborted: AbortedMessage | null;
 }
 
 type Action =
@@ -32,6 +38,7 @@ const initialState: GameSocketState = {
   view: null,
   error: null,
   settled: null,
+  aborted: null,
 };
 
 function reducer(state: GameSocketState, action: Action): GameSocketState {
@@ -42,22 +49,28 @@ function reducer(state: GameSocketState, action: Action): GameSocketState {
       return { ...state, error: null };
     case "server-message": {
       const msg = action.message;
-      if (msg.type === "state") {
-        // A settlement overlay belongs to the round it settled; a fresh
-        // round (ready-up -> deal) means it's done being shown.
-        const settled = state.settled && msg.round !== state.settled.round ? null : state.settled;
-        return {
-          ...state,
-          round: msg.round,
-          seats: msg.seats,
-          view: msg.view,
-          settled,
-        };
+      switch (msg.type) {
+        case "state": {
+          // A settlement overlay belongs to the round it settled; a fresh
+          // round (ready-up -> deal) means it's done being shown.
+          const settled = state.settled && msg.round !== state.settled.round ? null : state.settled;
+          return {
+            ...state,
+            round: msg.round,
+            seats: msg.seats,
+            view: msg.view,
+            settled,
+          };
+        }
+        case "error":
+          return { ...state, error: msg };
+        case "aborted":
+          return { ...state, aborted: msg };
+        case "settled":
+          return { ...state, settled: msg };
+        default:
+          return state;
       }
-      if (msg.type === "error") {
-        return { ...state, error: msg };
-      }
-      return { ...state, settled: msg };
     }
     default:
       return state;
@@ -76,8 +89,8 @@ const MAX_RECONNECT_DELAY_MS = 8000;
  * requireAuth's query-param fallback in worker/src/routes/tables.ts).
  * Reconnects with exponential backoff while the consuming component stays
  * mounted; closes for good on unmount. All server
- * "state" frames drive one reducer; "error" and "settled" frames are
- * exposed separately for the page to render as a toast / overlay.
+ * "state" frames drive one reducer; "error", "settled", and "aborted"
+ * frames are exposed separately for the page to render as a toast / overlay.
  */
 export function useGameSocket(tableId: string) {
   const [state, dispatch] = useReducer(reducer, initialState);

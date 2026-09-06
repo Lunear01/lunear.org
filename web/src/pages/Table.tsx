@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 // Runtime import of the pure, dependency-free doudizhu engine — this is the
 // one place web/ pulls game logic (not just types) into the client bundle,
 // so a hint can be computed locally without a server round-trip.
@@ -31,6 +31,7 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "not-initialized": "This table isn't set up yet.",
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
+  "table-aborted": "This game has ended.",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -49,7 +50,7 @@ export default function Table() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, send, dismissError } = useGameSocket(tableId);
+  const { status, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -120,7 +121,11 @@ export default function Table() {
 
   const mySeatRow = mySeat !== null ? seats?.find((s) => s.seat === mySeat) : undefined;
   const amReady = mySeatRow?.ready ?? false;
-  const canReadyUp = seats !== null && seats.length === 3 && (view === null || view.phase === "finished");
+  // An aborted table never resumes (see GameTableDO's abortHand doc comment)
+  // — ready-up is refused server-side too, but hiding it here avoids a
+  // pointless round trip that would just come back as a "table-aborted" error.
+  const canReadyUp =
+    !aborted && seats !== null && seats.length === 3 && (view === null || view.phase === "finished");
 
   // The settled overlay only ever shows alongside a "finished" view (see the
   // reducer's round-keyed clearing of `settled`), but guard anyway rather
@@ -129,9 +134,20 @@ export default function Table() {
   const viewerIsLandlord = finishedView !== null && finishedView.viewer === finishedView.landlord;
   const viewerWonHand = finishedView !== null && (finishedView.winner === "landlord") === viewerIsLandlord;
 
-  // Leaving is just disconnecting — no server call needed. Navigating away
-  // unmounts Table, and useGameSocket's cleanup effect closes the socket.
+  // Leaving via the settled/aborted overlay's "Exit to lobby" is just
+  // navigating — no server call needed. Navigating away unmounts Table, and
+  // useGameSocket's cleanup effect closes the socket.
   const handleExitToLobby = () => navigate(DOUDIZHU_LOBBY_PATH);
+
+  // The mid-hand "Leave table" control, unlike Exit to lobby above, tells the
+  // server first so an active hand aborts for everyone instead of just
+  // waiting out a 30s disconnect grace for no reason. Fire-and-forget: no
+  // response is awaited beyond the send itself (the socket is about to close
+  // anyway once navigation unmounts Table).
+  const handleLeaveTable = () => {
+    send({ type: "leave" });
+    navigate("/");
+  };
 
   const leftSeat = mySeat !== null ? (((mySeat + 1) % 3) as Seat) : null;
   const rightSeat = mySeat !== null ? (((mySeat + 2) % 3) as Seat) : null;
@@ -139,9 +155,13 @@ export default function Table() {
   return (
     <div className="table-page">
       <div className="table-topbar">
-        <Link to="/" className="button button--ghost button--small">
+        <button
+          type="button"
+          className="button button--ghost button--small"
+          onClick={handleLeaveTable}
+        >
           Leave table
-        </Link>
+        </button>
         {status !== "open" && (
           <span className="table-connection-banner">
             {status === "connecting" && "Connecting…"}
@@ -247,7 +267,7 @@ export default function Table() {
         </div>
       </div>
 
-      {settled && (
+      {settled && !aborted && (
         <div className="settled-overlay">
           <div className="settled-card card">
             <h2 className={`modal__title settled-card__winner ${viewerWonHand ? "settled-card__winner--gold" : ""}`}>
@@ -277,6 +297,20 @@ export default function Table() {
                 {amReady ? "Waiting for others…" : "Ready for next hand"}
               </button>
               <button type="button" className="button" onClick={handleExitToLobby}>
+                Exit to lobby
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aborted && (
+        <div className="settled-overlay">
+          <div className="settled-card card">
+            <h2 className="modal__title settled-card__winner">Game ended</h2>
+            <p className="modal__hint">{aborted.leaver.username} left the game</p>
+            <div className="settled-card__actions">
+              <button type="button" className="button button--primary" onClick={handleExitToLobby}>
                 Exit to lobby
               </button>
             </div>

@@ -1,4 +1,4 @@
-import { SELF, env, runInDurableObject } from "cloudflare:test";
+import { SELF, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import {
   RANK,
   applyAction,
@@ -11,9 +11,12 @@ import {
   type Seat,
 } from "doudizhu";
 import { describe, expect, it } from "vitest";
+import { lobbyDoName } from "../src/durable-objects/lobby";
 import type { ServerMessage, SettledMessage, StateMessage } from "../src/durable-objects/protocol";
+import { isUserInLiveGame } from "../src/game/live-check";
 
 const STAKE = 100;
+const GAME_ID = "doudizhu";
 
 // --- User / table setup helpers, mirroring test/auth.test.ts's conventions ---
 
@@ -46,6 +49,30 @@ async function initTable(tableId: string, hostCookie: string, stake: number): Pr
     body: JSON.stringify({ gameId: "doudizhu", stake, visibility: "private" }),
   });
   expect(res.status).toBe(200);
+}
+
+/** Routes a table's creation through the real lobby (quick play), matching
+ * test/lobby.test.ts's isUserInLiveGame setup — needed whenever a test wants
+ * genuine LobbyDO membership rows to assert get cleared, unlike initTable()
+ * above which talks to GameTableDO directly and never touches the lobby. */
+function quickPlay(cookie: string): Promise<Response> {
+  return SELF.fetch(`http://example.com/api/lobby/${GAME_ID}/quickplay`, {
+    method: "POST",
+    headers: { cookie },
+  });
+}
+
+/** Polls `check` until it resolves true or `timeoutMs` elapses — used only
+ * for the eventual-consistency window between a broadcast a client observes
+ * and the DO's own best-effort, awaited-but-not-blocking LobbyDO notify that
+ * follows it (see notifyLobbyTableCleared's doc comment in game-table.ts). */
+async function waitUntil(check: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await check()) return;
+    if (Date.now() >= deadline) throw new Error("timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 async function openTableSocket(tableId: string, cookie: string): Promise<FrameQueue> {
@@ -207,22 +234,14 @@ async function ledgerRowsForRound(tableId: string, round: number) {
     .all<{ userId: string; amount: number; idempotencyKey: string }>();
 }
 
-/** Drives 3 sockets through ready-up, a bid-3 landlord win, and 5 scripted bomb leads to a finish. */
-async function playScriptedGameToFinish(
-  tableId: string,
-  cookies: readonly [string, string, string],
-): Promise<{ sockets: [FrameQueue, FrameQueue, FrameQueue] }> {
-  // Connect sequentially, not via Promise.all: the DO assigns seats in the
-  // order connections actually reach it (SEATS.find(s => !taken.has(s)) in
-  // fetch()), which is NOT guaranteed to match the order three concurrently
-  // dispatched fetches were started in. Awaiting each connect fully before
-  // starting the next pins seat 0/1/2 to cookies[0]/[1]/[2] deterministically.
-  const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
-    await openTableSocket(tableId, cookies[0]),
-    await openTableSocket(tableId, cookies[1]),
-    await openTableSocket(tableId, cookies[2]),
-  ];
-
+/**
+ * Drives 3 already-connected sockets through ready-up and a bid-3 landlord
+ * win, ending right as seat 0 (the landlord) leads the first trick — i.e.
+ * genuinely mid-hand (playing phase), not just mid-bidding. Shared by every
+ * test below that needs an active hand to leave/disconnect out of, plus
+ * playScriptedGameToFinish (which continues on to a full finish).
+ */
+async function readyUpAndReachPlaying(sockets: readonly [FrameQueue, FrameQueue, FrameQueue]): Promise<void> {
   // Note: don't wait for each socket's connect-time broadcastState() message
   // here — the DO's fetch() handler broadcasts to a newly-accepted socket
   // before returning the 101 response, i.e. before the test can possibly
@@ -241,6 +260,25 @@ async function playScriptedGameToFinish(
     const v = playingView(m);
     return v !== null && v.currentTurn === 0 && v.lastPlay === null;
   });
+}
+
+/** Drives 3 sockets through ready-up, a bid-3 landlord win, and 5 scripted bomb leads to a finish. */
+async function playScriptedGameToFinish(
+  tableId: string,
+  cookies: readonly [string, string, string],
+): Promise<{ sockets: [FrameQueue, FrameQueue, FrameQueue] }> {
+  // Connect sequentially, not via Promise.all: the DO assigns seats in the
+  // order connections actually reach it (SEATS.find(s => !taken.has(s)) in
+  // fetch()), which is NOT guaranteed to match the order three concurrently
+  // dispatched fetches were started in. Awaiting each connect fully before
+  // starting the next pins seat 0/1/2 to cookies[0]/[1]/[2] deterministically.
+  const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
+    await openTableSocket(tableId, cookies[0]),
+    await openTableSocket(tableId, cookies[1]),
+    await openTableSocket(tableId, cookies[2]),
+  ];
+
+  await readyUpAndReachPlaying(sockets);
 
   for (let i = 0; i < LANDLORD_BOMB_RANKS.length; i++) {
     const cardIds = cardIdsForRank(LANDLORD_BOMB_RANKS[i]);
@@ -507,5 +545,226 @@ describe("GameTableDO — redaction", () => {
     expect(view1.handCounts).toEqual({ 0: 20, 1: 17, 2: 17 });
 
     for (const s of sockets) s.ws.close();
+  });
+});
+
+describe("GameTableDO — deliberate leave aborts the hand", () => {
+  it("ends the game for everyone immediately: no settlement, no ledger rows, cleared lobby membership", async () => {
+    const [host, p2, p3] = await Promise.all([
+      registerUser("lvhost"),
+      registerUser("lvp2"),
+      registerUser("lvp3"),
+    ]);
+
+    // Route table creation through the real lobby (quick play) rather than
+    // initTable() — this is the same setup test/lobby.test.ts's
+    // isUserInLiveGame tests use, and it's load-bearing here: initTable()
+    // talks to GameTableDO directly and never touches LobbyDO, which would
+    // make a "membership got cleared" assertion vacuously true.
+    await quickPlay(host.cookie);
+    await quickPlay(p2.cookie);
+    const matchRes = await quickPlay(p3.cookie);
+    const { tableId } = await matchRes.json<{ tableId: string }>();
+
+    const stub = env.GAME_TABLE_DO.getByName(tableId);
+    const deck = buildScriptedDeck();
+    await stub.setTestFixedDeal({ shuffledDeck: deck, firstBidder: 0 });
+
+    const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+    await readyUpAndReachPlaying(sockets);
+
+    const users = [host, p2, p3] as const;
+    const before = await Promise.all(
+      users.map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+
+    // The landlord (seat 0, host) leaves mid-trick.
+    send(sockets[0], { type: "leave" });
+
+    const abortedFrames = await Promise.all(
+      sockets.map((s) => s.nextFrameMatching((m) => m.type === "aborted")),
+    );
+    for (const msg of abortedFrames) {
+      expect(msg).toMatchObject({ type: "aborted", leaver: { seat: 0, username: host.username } });
+    }
+
+    // A final state broadcast follows, with no active hand left to show.
+    const finalStates = await Promise.all(
+      sockets.map((s) => s.nextFrameMatching((m) => asStateMessage(m) !== null)),
+    );
+    for (const m of finalStates) {
+      expect(asStateMessage(m)!.view).toBeNull();
+    }
+
+    const ledger = await ledgerRowsForRound(tableId, 1);
+    expect(ledger.results).toHaveLength(0);
+
+    const after = await Promise.all(
+      users.map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+    expect(after).toEqual(before);
+
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
+    // The DO's notify-LobbyDO call is deliberately awaited after the
+    // websocket broadcasts (see notifyLobbyTableCleared's doc comment), so
+    // membership clearing can lag slightly behind the client-visible
+    // 'aborted' frame — poll rather than assert immediately.
+    await waitUntil(async () => !(await lobbyStub.isMember(host.id)));
+    expect(await lobbyStub.isMember(p2.id)).toBe(false);
+    expect(await lobbyStub.isMember(p3.id)).toBe(false);
+
+    expect(await isUserInLiveGame(env, host.id)).toBe(false);
+    expect(await isUserInLiveGame(env, p2.id)).toBe(false);
+    expect(await isUserInLiveGame(env, p3.id)).toBe(false);
+
+    for (const s of sockets) s.ws.close();
+  });
+});
+
+describe("GameTableDO — disconnect grace expiry aborts the hand", () => {
+  it("aborts once the grace alarm fires for a seat that never reconnected", async () => {
+    const tableId = `t-graceabort-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("gahost"),
+      registerUser("gap2"),
+      registerUser("gap3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.GAME_TABLE_DO.getByName(tableId);
+    const deck = buildScriptedDeck();
+    await stub.setTestFixedDeal({ shuffledDeck: deck, firstBidder: 0 });
+
+    const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+    await readyUpAndReachPlaying(sockets);
+
+    // Seat 1 (farmer1) disconnects mid-hand and never comes back.
+    sockets[1].ws.close(1000, "network drop");
+    await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats[1].connected === false);
+
+    // Force the grace alarm to run now instead of waiting the real 30s —
+    // the DO doesn't check elapsed wall-clock time itself (see alarm()'s doc
+    // comment in game-table.ts): a pending row that's still disconnected
+    // when the alarm runs is genuinely due, whether the alarm fired for real
+    // or was forced here.
+    const ran = await runDurableObjectAlarm(stub);
+    expect(ran).toBe(true);
+
+    const abortedHost = await sockets[0].nextFrameMatching((m) => m.type === "aborted");
+    expect(abortedHost).toMatchObject({ type: "aborted", leaver: { seat: 1, username: p2.username } });
+    const abortedP3 = await sockets[2].nextFrameMatching((m) => m.type === "aborted");
+    expect(abortedP3).toMatchObject({ type: "aborted", leaver: { seat: 1, username: p2.username } });
+
+    const ledger = await ledgerRowsForRound(tableId, 1);
+    expect(ledger.results).toHaveLength(0);
+
+    sockets[0].ws.close();
+    sockets[2].ws.close();
+  });
+});
+
+describe("GameTableDO — reconnect within grace cancels the pending abort", () => {
+  it("does not abort on a disconnect followed by a prompt reconnect (e.g. a page refresh); play continues", async () => {
+    const tableId = `t-gracecancel-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("gchost"),
+      registerUser("gcp2"),
+      registerUser("gcp3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.GAME_TABLE_DO.getByName(tableId);
+    const deck = buildScriptedDeck();
+    await stub.setTestFixedDeal({ shuffledDeck: deck, firstBidder: 0 });
+
+    const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+    await readyUpAndReachPlaying(sockets);
+
+    // Landlord leads the first bomb; it becomes seat 1's turn.
+    send(sockets[0], { type: "play", cardIds: cardIdsForRank(LANDLORD_BOMB_RANKS[0]) });
+    await sockets[1].nextFrameMatching((m) => playingView(m)?.currentTurn === 1);
+
+    sockets[1].ws.close(1000, "page refresh");
+    await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats[1].connected === false);
+
+    // Reconnects promptly (as a page refresh would), well inside the 30s grace.
+    const reconnected = await openTableSocket(tableId, p2.cookie);
+    await reconnected.nextFrameMatching((m) => asStateMessage(m)?.seats[1].connected === true);
+
+    // The pending grace timer was actually cancelled, not just coincidentally
+    // not-yet-fired: no alarm is scheduled for this table at all anymore.
+    const ran = await runDurableObjectAlarm(stub);
+    expect(ran).toBe(false);
+
+    // Play continues normally — no 'aborted' frame was ever sent to anyone.
+    send(reconnected, { type: "pass" });
+    await sockets[2].nextFrameMatching((m) => playingView(m)?.currentTurn === 2);
+    send(sockets[2], { type: "pass" });
+    await sockets[0].nextFrameMatching((m) => {
+      const v = playingView(m);
+      return v !== null && v.currentTurn === 0 && v.lastPlay === null;
+    });
+
+    expect(sockets[0].messages.some((m) => m.type === "aborted")).toBe(false);
+    expect(reconnected.messages.some((m) => m.type === "aborted")).toBe(false);
+    expect(sockets[2].messages.some((m) => m.type === "aborted")).toBe(false);
+
+    sockets[0].ws.close();
+    reconnected.ws.close();
+    sockets[2].ws.close();
+  });
+});
+
+describe("GameTableDO — leave before a hand starts", () => {
+  it("does not abort during the waiting/ready phase; the seat just disconnects as it always has", async () => {
+    const tableId = `t-leavewait-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("lwhost"),
+      registerUser("lwp2"),
+      registerUser("lwp3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+
+    const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+
+    // Nobody has readied up yet — no hand in progress, so 'leave' is a no-op
+    // beyond the normal disconnect bookkeeping that follows the close below.
+    send(sockets[0], { type: "leave" });
+    sockets[0].ws.close();
+    await sockets[1].nextFrameMatching((m) => asStateMessage(m)?.seats[0].connected === false);
+
+    // The seat is still reserved for this user to come back to — nothing in
+    // the codebase ever deletes a `seats` row today, so "frees the seat"
+    // here means the existing disconnect bookkeeping (shows disconnected,
+    // same user can reconnect), not a new seat-removal feature; adding one
+    // was out of scope for this change.
+    const rejoined = await openTableSocket(tableId, host.cookie);
+    const rejoinState = await rejoined.nextFrameMatching((m) => m.type === "state");
+    expect(asStateMessage(rejoinState)!.seats[0]).toMatchObject({ userId: host.id, connected: true });
+
+    expect(sockets[1].messages.some((m) => m.type === "aborted")).toBe(false);
+    expect(sockets[2].messages.some((m) => m.type === "aborted")).toBe(false);
+
+    rejoined.ws.close();
+    sockets[1].ws.close();
+    sockets[2].ws.close();
   });
 });

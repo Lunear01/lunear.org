@@ -5,6 +5,7 @@
 // worker/src/durable-objects/protocol.ts (wire messages) and
 // games/doudizhu/src (the redacted view shape) for the source of truth.
 export type {
+  AbortedMessage,
   ClientMessage,
   ErrorCode,
   ErrorMessage,

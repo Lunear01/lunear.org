@@ -13,13 +13,31 @@ import {
   type GameState,
   type Seat,
 } from "doudizhu";
-import { parseClientMessage, type ErrorCode, type ErrorMessage, type SeatStatus, type SettledMessage, type StateMessage } from "./protocol";
+import {
+  parseClientMessage,
+  type AbortedMessage,
+  type ErrorCode,
+  type ErrorMessage,
+  type SeatStatus,
+  type SettledMessage,
+  type StateMessage,
+} from "./protocol";
 import { lobbyDoName } from "./lobby";
 
 // One DO per table (named by table id via env.GAME_TABLE_DO.getByName(tableId)).
 // Owns: seating, ready-up, driving the doudizhu engine, redacted broadcasts,
 // and exactly-once settlement to D1's credit ledger. No per-turn countdown —
 // removed; a turn simply waits for the acting seat's input indefinitely.
+//
+// A hand mid-play (bidding/playing) is VOID — aborted, no settlement — the
+// instant a seat leaves for good: either a deliberate {type:'leave'} message,
+// or a socket close that isn't followed by a reconnect within a 30s grace
+// window. The grace window is tracked per-seat in `pending_disconnects` and
+// driven by a single DO alarm armed for the earliest outstanding deadline
+// (re-armed on every schedule/cancel); a reconnect within grace cancels that
+// seat's row. Once aborted, a table never resumes — ready-up is refused
+// forever and players must start a new table (see abortHand()'s doc comment
+// for why this simpler rematch policy was chosen over reconnect-to-resume).
 
 export interface TableInitParams {
   readonly tableId: string;
@@ -77,7 +95,21 @@ interface GameStateRow {
   [key: string]: SqlStorageValue;
   stateJson: string | null;
   settled: 0 | 1;
+  aborted: 0 | 1;
+  abortedSeat: number | null;
+  abortedUsername: string | null;
 }
+
+interface PendingDisconnectRow {
+  [key: string]: SqlStorageValue;
+  seat: Seat;
+  username: string;
+  deadline: number;
+}
+
+// A disconnect during an active hand gets this long to reconnect before the
+// hand is voided. Kept generous enough to survive a page refresh comfortably.
+const DISCONNECT_GRACE_MS = 30_000;
 
 interface TestOverrideRow {
   [key: string]: SqlStorageValue;
@@ -141,7 +173,10 @@ export class GameTableDO extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS game_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         state_json TEXT,
-        settled INTEGER NOT NULL DEFAULT 0
+        settled INTEGER NOT NULL DEFAULT 0,
+        aborted INTEGER NOT NULL DEFAULT 0,
+        aborted_seat INTEGER,
+        aborted_username TEXT
       )
     `);
     this.ctx.storage.sql.exec(`
@@ -149,6 +184,16 @@ export class GameTableDO extends DurableObject<Env> {
         id INTEGER PRIMARY KEY CHECK (id = 1),
         shuffled_deck_json TEXT NOT NULL,
         first_bidder INTEGER NOT NULL
+      )
+    `);
+    // One row per seat currently mid-disconnect-grace during an active hand
+    // (see the file-header comment). Cleared on reconnect, on abort, and at
+    // the start of every fresh hand.
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS pending_disconnects (
+        seat INTEGER PRIMARY KEY CHECK (seat IN (0, 1, 2)),
+        username TEXT NOT NULL,
+        deadline INTEGER NOT NULL
       )
     `);
   }
@@ -269,6 +314,9 @@ export class GameTableDO extends DurableObject<Env> {
       if (existing.username !== username) {
         this.ctx.storage.sql.exec("UPDATE seats SET username = ? WHERE seat = ?", username, seat);
       }
+      // A reconnect (including a plain page refresh) always cancels this
+      // seat's pending disconnect-abort, regardless of hand phase.
+      await this.cancelDisconnectGrace(seat);
     } else {
       const taken = new Set(seats.map((s) => s.seat));
       const free = SEATS.find((s) => !taken.has(s));
@@ -329,6 +377,16 @@ export class GameTableDO extends DurableObject<Env> {
         return;
       }
 
+      if (parsed.type === "leave") {
+        await this.handleLeave(seat, attachment.username);
+        return;
+      }
+
+      if (this.isAborted()) {
+        this.sendErrorToWs(ws, "table-aborted", "This game has ended — start a new table.");
+        return;
+      }
+
       await this.ensureSettledIfNeeded();
 
       if (parsed.type === "ready") {
@@ -359,17 +417,40 @@ export class GameTableDO extends DurableObject<Env> {
     }
   }
 
-  async webSocketClose(): Promise<void> {
-    this.broadcastState();
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    await this.handleSocketClosed(ws);
   }
 
-  async webSocketError(): Promise<void> {
+  async webSocketError(ws: WebSocket): Promise<void> {
+    await this.handleSocketClosed(ws);
+  }
+
+  /**
+   * Shared by both terminal hibernation events. By the time either fires,
+   * the closing socket is already gone from ctx.getWebSockets() (matches the
+   * existing reconnection test's `seats[1].connected === false` assertion
+   * right after `.close()`), so "no socket left for this seat" is a reliable
+   * disconnect signal here. Only an active hand (bidding/playing) starts a
+   * grace timer — the ready-up/waiting phase just broadcasts the seat's now-
+   * disconnected status, same as before this feature existed.
+   */
+  private async handleSocketClosed(ws: WebSocket): Promise<void> {
     this.broadcastState();
+    const attachment = ws.deserializeAttachment() as SocketAttachment | null;
+    if (!attachment || this.isAborted() || !this.hasActiveHand()) return;
+    const stillConnected = this.ctx.getWebSockets(`seat:${attachment.seat}`).length > 0;
+    if (!stillConnected) {
+      await this.scheduleDisconnectGrace(attachment.seat, attachment.username);
+    }
   }
 
   // --- Game flow --------------------------------------------------------------
 
   private async handleReady(seat: Seat): Promise<void> {
+    if (this.isAborted()) {
+      this.sendErrorToSeat(seat, "table-aborted", "This game has ended — start a new table.");
+      return;
+    }
     if (!this.isWaitingForReady()) {
       this.sendErrorToSeat(seat, "game-in-progress", "cannot ready up while a hand is active");
       return;
@@ -381,6 +462,19 @@ export class GameTableDO extends DurableObject<Env> {
     } else {
       this.broadcastState();
     }
+  }
+
+  /**
+   * Client-driven leave (see ClientMessage's 'leave'), sent right before the
+   * browser navigates away. During an active hand this ends the game for
+   * everyone immediately — no grace period, unlike a bare disconnect. Outside
+   * an active hand (waiting/ready, or a finished-but-not-yet-readied hand)
+   * this is a no-op: the seat just shows disconnected once the socket
+   * actually closes, same as it always has.
+   */
+  private async handleLeave(seat: Seat, username: string): Promise<void> {
+    if (this.isAborted() || !this.hasActiveHand()) return;
+    await this.abortHand(seat, username);
   }
 
   private async applyNewState(state: GameState): Promise<void> {
@@ -412,8 +506,128 @@ export class GameTableDO extends DurableObject<Env> {
       this.ctx.storage.sql.exec("UPDATE seats SET ready = 0");
     }
 
+    // Defensive: a fresh hand never starts holding a leftover grace timer
+    // from a prior one (normally already empty by this point either way).
+    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
+    await this.ctx.storage.deleteAlarm();
+
     this.persistGameState(state);
     this.broadcastState();
+  }
+
+  // --- Abort (deliberate leave, or disconnect grace expiry) --------------------
+
+  /**
+   * Voids the current hand: no settlement, no ledger writes, no credit
+   * changes — the table's game_state row is marked `aborted` and its
+   * state_json cleared so every seat's next `state` broadcast carries
+   * `view: null`. Idempotent (a leave racing the grace alarm, or two
+   * disconnected seats both expiring, can only ever abort once).
+   *
+   * Rematch policy: an aborted table never resumes. `isWaitingForReady()`
+   * returns false forever once aborted, so a 'ready' message always gets
+   * "table-aborted" back — players must start a new table. The alternative
+   * (allow ready-up again once all 3 original seats reconnect) was
+   * considered and rejected here as needless complexity for a path with no
+   * real upside: nothing recoverable was in flight (no settlement, no
+   * pot), so "just make a new table" is exactly as cheap for the players
+   * and far simpler to get right than resurrecting seat/ready state on a
+   * table that already told everyone the game ended.
+   */
+  private async abortHand(seat: Seat, username: string): Promise<void> {
+    if (this.isAborted()) return;
+    const meta = this.loadMetaRow();
+    if (!meta) return;
+
+    this.ctx.storage.sql.exec(
+      "UPDATE game_state SET state_json = NULL, settled = 0, aborted = 1, aborted_seat = ?, aborted_username = ? WHERE id = 1",
+      seat,
+      username,
+    );
+    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
+    await this.ctx.storage.deleteAlarm();
+
+    this.broadcastAborted(seat, username);
+    this.broadcastState();
+    await this.notifyLobbyTableCleared(meta.gameId, meta.tableId);
+  }
+
+  private broadcastAborted(seat: Seat, username: string): void {
+    const msg: AbortedMessage = { type: "aborted", leaver: { seat, username } };
+    const json = JSON.stringify(msg);
+    for (const s of SEATS) {
+      for (const ws of this.ctx.getWebSockets(`seat:${s}`)) {
+        try {
+          ws.send(json);
+        } catch {
+          /* socket may have just closed */
+        }
+      }
+    }
+  }
+
+  // --- Disconnect grace ----------------------------------------------------------
+
+  private async scheduleDisconnectGrace(seat: Seat, username: string): Promise<void> {
+    const deadline = Date.now() + DISCONNECT_GRACE_MS;
+    this.ctx.storage.sql.exec(
+      "INSERT OR REPLACE INTO pending_disconnects (seat, username, deadline) VALUES (?, ?, ?)",
+      seat,
+      username,
+      deadline,
+    );
+    await this.rearmDisconnectAlarm();
+  }
+
+  private async cancelDisconnectGrace(seat: Seat): Promise<void> {
+    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects WHERE seat = ?", seat);
+    await this.rearmDisconnectAlarm();
+  }
+
+  /**
+   * Multiple seats can be mid-grace at once (e.g. two disconnects in the
+   * same hand); a DO has only one alarm, so it's always armed for the
+   * earliest outstanding deadline. Whichever seat's grace expires first
+   * fires the alarm, and voiding the hand makes any other still-pending
+   * seat moot — abortHand() clears the whole table, alarm included.
+   */
+  private async rearmDisconnectAlarm(): Promise<void> {
+    const row = this.ctx.storage.sql
+      .exec<{ deadline: number }>("SELECT MIN(deadline) as deadline FROM pending_disconnects")
+      .toArray()[0];
+    if (row?.deadline == null) {
+      await this.ctx.storage.deleteAlarm();
+    } else {
+      await this.ctx.storage.setAlarm(row.deadline);
+    }
+  }
+
+  /**
+   * In production this only ever runs once the platform's clock reaches the
+   * armed deadline, so whichever seat is earliest is genuinely due. Tests
+   * force it early via runDurableObjectAlarm — the `stillConnected` check
+   * below is what makes that safe: a seat that reconnected in the meantime
+   * already had its row deleted by cancelDisconnectGrace, so it simply won't
+   * be picked here regardless of how the alarm was triggered.
+   */
+  async alarm(): Promise<void> {
+    if (this.isAborted() || !this.hasActiveHand()) {
+      this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
+      return;
+    }
+
+    const earliest = this.ctx.storage.sql
+      .exec<PendingDisconnectRow>("SELECT seat, username, deadline FROM pending_disconnects ORDER BY deadline ASC LIMIT 1")
+      .toArray()[0];
+    if (!earliest) return;
+
+    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects WHERE seat = ?", earliest.seat);
+    const stillConnected = this.ctx.getWebSockets(`seat:${earliest.seat}`).length > 0;
+    if (stillConnected) {
+      await this.rearmDisconnectAlarm();
+      return;
+    }
+    await this.abortHand(earliest.seat, earliest.username);
   }
 
   // --- Settlement ---------------------------------------------------------------
@@ -439,7 +653,7 @@ export class GameTableDO extends DurableObject<Env> {
 
     if (row.settled === 1) {
       await this.broadcastSettled(meta.round, seats, deltas);
-      await this.notifyLobbySettled(meta.gameId, meta.tableId);
+      await this.notifyLobbyTableCleared(meta.gameId, meta.tableId);
       return;
     }
 
@@ -494,18 +708,22 @@ export class GameTableDO extends DurableObject<Env> {
 
     this.ctx.storage.sql.exec("UPDATE game_state SET settled = 1 WHERE id = 1");
     await this.broadcastSettled(meta.round, seats, deltas);
-    await this.notifyLobbySettled(meta.gameId, meta.tableId);
+    await this.notifyLobbyTableCleared(meta.gameId, meta.tableId);
   }
 
-  // Best-effort, run only after the settlement broadcast so a slow/unhealthy
-  // LobbyDO never delays a player from seeing their own settlement message.
-  // Clears this table's lobby membership (admin delete-user guard,
-  // isUserInLiveGame) — never lets a lobby hiccup break settlement itself.
-  private async notifyLobbySettled(gameId: string, tableId: string): Promise<void> {
+  // Best-effort, run only after the settlement/abort broadcast so a slow or
+  // unhealthy LobbyDO never delays a player from seeing their own
+  // settlement/game-ended message. Clears this table's lobby membership
+  // (admin delete-user guard, isUserInLiveGame) — never lets a lobby hiccup
+  // break settlement or abort itself. `notifySettled` is the LobbyDO's
+  // existing RPC name (worker/src/durable-objects/lobby.ts) — reused as-is
+  // for an abort too since its job ("clear this table out of the lobby
+  // entirely") is already agnostic to *why* the table ended.
+  private async notifyLobbyTableCleared(gameId: string, tableId: string): Promise<void> {
     try {
       await this.env.LOBBY_DO.getByName(lobbyDoName(gameId)).notifySettled(tableId);
     } catch (err) {
-      console.error("GameTableDO: failed to notify LobbyDO of settlement", err);
+      console.error("GameTableDO: failed to notify LobbyDO of table clearing", err);
     }
   }
 
@@ -588,7 +806,12 @@ export class GameTableDO extends DurableObject<Env> {
 
   // --- State predicates -----------------------------------------------------
 
+  private isAborted(): boolean {
+    return this.loadGameStateRow().aborted === 1;
+  }
+
   private isWaitingForReady(): boolean {
+    if (this.isAborted()) return false;
     const row = this.loadGameStateRow();
     if (!row.stateJson) return true;
     const state = JSON.parse(row.stateJson) as GameState;
@@ -596,6 +819,7 @@ export class GameTableDO extends DurableObject<Env> {
   }
 
   private hasActiveHand(): boolean {
+    if (this.isAborted()) return false;
     const state = this.loadGameState();
     return state !== null && (state.phase === "bidding" || state.phase === "playing");
   }
@@ -620,9 +844,13 @@ export class GameTableDO extends DurableObject<Env> {
 
   private loadGameStateRow(): GameStateRow {
     const row = this.ctx.storage.sql
-      .exec<GameStateRow>("SELECT state_json as stateJson, settled FROM game_state WHERE id = 1")
+      .exec<GameStateRow>(
+        `SELECT state_json as stateJson, settled, aborted,
+                aborted_seat as abortedSeat, aborted_username as abortedUsername
+         FROM game_state WHERE id = 1`,
+      )
       .toArray()[0];
-    return row ?? { stateJson: null, settled: 0 };
+    return row ?? { stateJson: null, settled: 0, aborted: 0, abortedSeat: null, abortedUsername: null };
   }
 
   private loadGameState(): GameState | null {
