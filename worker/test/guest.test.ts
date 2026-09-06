@@ -81,7 +81,7 @@ describe("POST /api/auth/guest", () => {
     const { tableId } = await initRes.json<{ tableId: string }>();
 
     const wsRes = await SELF.fetch(
-      `http://example.com/api/tables/${tableId}/ws?token=${token}`,
+      `http://example.com/api/tables/doudizhu/${tableId}/ws?token=${token}`,
       { headers: { Upgrade: "websocket" } },
     );
     expect(wsRes.status).toBe(101);

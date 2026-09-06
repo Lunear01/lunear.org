@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AuthVariables } from "../auth/session";
 import { extractSessionId, loadSessionUser, requireAuth } from "../auth/session";
+import { getTableStub } from "../durable-objects/table-binding";
 import { getGameDefinition } from "../registry";
 
 export const tableRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -46,7 +47,8 @@ tableRoutes.post("/:tableId/init", requireAuth, async (c) => {
 
   // Built field-by-field (never a spread of `body`) so no client-supplied key
   // — e.g. a test-only deck override — can ever reach the DO's init().
-  const stub = c.env.GAME_TABLE_DO.getByName(tableId);
+  const stub = getTableStub(c.env, gameId, tableId);
+  if (!stub) return c.json({ error: "game not enabled" }, 501);
   const result = await stub.init({
     tableId,
     gameId,
@@ -63,10 +65,23 @@ tableRoutes.post("/:tableId/init", requireAuth, async (c) => {
 // API can't set custom headers on the upgrade request, so guests (who carry
 // their session as a bearer token, never a cookie) need a `?token=` query
 // param fallback that's specific to this route, not general HTTP auth.
-tableRoutes.get("/:tableId/ws", async (c) => {
+//
+// :gameId is required in the path (not just the init body) because this GET
+// request carries no body to read it from — the route needs it up front to
+// pick the right table DO binding (durable-objects/table-binding.ts). The
+// client must call GET /api/tables/:gameId/:tableId/ws, e.g.
+// /api/tables/doudizhu/tbl-abc123/ws — gameId is whatever the lobby route
+// used to create the table (web/src/api/lobby.ts already threads gameId
+// through createGame/quickPlay, so the table page just needs to carry it
+// alongside tableId into this URL).
+tableRoutes.get("/:gameId/:tableId/ws", async (c) => {
+  const gameId = c.req.param("gameId");
   const tableId = c.req.param("tableId");
   if (!isValidTableId(tableId)) {
     return c.json({ error: "invalid table id" }, 400);
+  }
+  if (!getGameDefinition(gameId)) {
+    return c.json({ error: "unknown game" }, 404);
   }
   const upgrade = c.req.header("Upgrade");
   if (!upgrade || upgrade.toLowerCase() !== "websocket") {
@@ -84,6 +99,7 @@ tableRoutes.get("/:tableId/ws", async (c) => {
   headers.set("X-Username", user.username);
   const forwarded = new Request(c.req.raw, { headers });
 
-  const stub = c.env.GAME_TABLE_DO.getByName(tableId);
+  const stub = getTableStub(c.env, gameId, tableId);
+  if (!stub) return c.json({ error: "game not enabled" }, 501);
   return stub.fetch(forwarded);
 });

@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { getGameDefinition } from "../registry";
+import { getTableStub } from "./table-binding";
 
 // Singleton per game_id (env.LOBBY_DO.getByName(lobbyDoName(gameId))). Owns:
 // the quick-play queue, the public-table directory, the invite-code ->
 // table-id map, and a user -> active-table membership map (consumed by
 // isUserInLiveGame). Never imports game rules — only the registry's seat
-// counts and env.GAME_TABLE_DO to init tables / read live seat occupancy.
+// counts and, via table-binding.ts's getTableStub(), the per-game table DO
+// binding needed to init tables / read live seat occupancy.
 
 export function lobbyDoName(gameId: string): string {
   return `lobby:${gameId}`;
@@ -132,6 +134,31 @@ export class LobbyDO extends DurableObject<Env> {
     );
   }
 
+  /**
+   * A LobbyDO instance is always created via getByName(lobbyDoName(gameId))
+   * (see the file-header comment), so its own DO name reliably encodes
+   * which game it partitions. Methods that don't already take a gameId
+   * parameter (listOpenParties, claimSeat, isLiveMember) use this instead
+   * of adding one, so their public RPC signatures — and every call site —
+   * stay unchanged as more games are added.
+   */
+  private currentGameId(): string {
+    const name = this.ctx.id.name;
+    const gameId = name?.startsWith("lobby:") ? name.slice("lobby:".length) : undefined;
+    if (!gameId) throw new Error("LobbyDO: durable object name is not in 'lobby:<gameId>' form");
+    return gameId;
+  }
+
+  private async seatSummaryFor(tableId: string) {
+    const stub = getTableStub(this.env, this.currentGameId(), tableId);
+    return stub ? stub.getSeatSummary() : null;
+  }
+
+  private async livenessFor(tableId: string) {
+    const stub = getTableStub(this.env, this.currentGameId(), tableId);
+    return stub ? stub.getLiveness() : { finished: true, settled: false, anyConnected: false };
+  }
+
   // --- Quick play -------------------------------------------------------------
 
   /**
@@ -196,14 +223,16 @@ export class LobbyDO extends DurableObject<Env> {
     );
     await this.ensureCleanupAlarmScheduled();
 
-    const stub = this.env.GAME_TABLE_DO.getByName(tableId);
-    const initResult = await stub.init({
-      tableId,
-      gameId,
-      stake: QUICK_PLAY_STAKE,
-      visibility: "public",
-      hostUserId: group[0].userId,
-    });
+    const stub = getTableStub(this.env, gameId, tableId);
+    const initResult = stub
+      ? await stub.init({
+          tableId,
+          gameId,
+          stake: QUICK_PLAY_STAKE,
+          visibility: "public",
+          hostUserId: group[0].userId,
+        })
+      : { ok: false as const, reason: "no-table-do-binding" };
     if (!initResult.ok) {
       console.error(`LobbyDO: quick-play table init failed (${tableId}): ${initResult.reason}`);
     }
@@ -240,15 +269,17 @@ export class LobbyDO extends DurableObject<Env> {
     this.setMembership(params.hostUserId, tableId);
     await this.ensureCleanupAlarmScheduled();
 
-    const stub = this.env.GAME_TABLE_DO.getByName(tableId);
-    const initResult = await stub.init({
-      tableId,
-      gameId,
-      stake: params.stake,
-      visibility,
-      inviteCode,
-      hostUserId: params.hostUserId,
-    });
+    const stub = getTableStub(this.env, gameId, tableId);
+    const initResult = stub
+      ? await stub.init({
+          tableId,
+          gameId,
+          stake: params.stake,
+          visibility,
+          inviteCode,
+          hostUserId: params.hostUserId,
+        })
+      : { ok: false as const, reason: "no-table-do-binding" };
     if (!initResult.ok) {
       console.error(`LobbyDO: createGame table init failed (${tableId}): ${initResult.reason}`);
     }
@@ -273,7 +304,7 @@ export class LobbyDO extends DurableObject<Env> {
       // One RPC per listed table: getSeatSummary() now carries both the
       // seat-reconciliation data and the liveness fields needed to classify
       // the table below, so no second call is needed here.
-      const summary = await this.env.GAME_TABLE_DO.getByName(row.tableId).getSeatSummary();
+      const summary = await this.seatSummaryFor(row.tableId);
       if (this.isInactive(row, summary)) {
         this.clearTable(row.tableId);
         continue;
@@ -353,7 +384,7 @@ export class LobbyDO extends DurableObject<Env> {
       .toArray().length > 0;
     if (alreadyMember) return { ok: true, tableId };
 
-    const summary = await this.env.GAME_TABLE_DO.getByName(tableId).getSeatSummary();
+    const summary = await this.seatSummaryFor(tableId);
     const liveFilled = summary?.seatsFilled ?? 0;
 
     const current = this.getTableRow(tableId);
@@ -402,7 +433,7 @@ export class LobbyDO extends DurableObject<Env> {
       .toArray()[0];
     if (!row) return false;
 
-    const liveness = await this.env.GAME_TABLE_DO.getByName(row.tableId).getLiveness();
+    const liveness = await this.livenessFor(row.tableId);
     const live = !liveness.finished && liveness.anyConnected;
     if (!live) this.clearTable(row.tableId);
     return live;

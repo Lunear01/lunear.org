@@ -76,7 +76,7 @@ async function waitUntil(check: () => Promise<boolean>, timeoutMs = 3000): Promi
 }
 
 async function openTableSocket(tableId: string, cookie: string): Promise<FrameQueue> {
-  const res = await SELF.fetch(`http://example.com/api/tables/${tableId}/ws`, {
+  const res = await SELF.fetch(`http://example.com/api/tables/${GAME_ID}/${tableId}/ws`, {
     headers: { Upgrade: "websocket", cookie },
   });
   expect(res.status).toBe(101);
