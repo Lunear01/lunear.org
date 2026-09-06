@@ -147,6 +147,20 @@ describe("GET /api/admin/users", () => {
     const cappedBody = await cappedRes.json<{ limit: number }>();
     expect(cappedBody.limit).toBe(100);
   });
+
+  it("excludes guest users from the listing", async () => {
+    const admin = await loginAsAdmin();
+    const guestRes = await SELF.fetch("http://example.com/api/auth/guest", {
+      method: "POST",
+    });
+    const guest = await guestRes.json<{ id: string }>();
+
+    const res = await SELF.fetch("http://example.com/api/admin/users?limit=100", {
+      headers: { cookie: admin.cookie },
+    });
+    const body = await res.json<{ users: { id: string }[] }>();
+    expect(body.users.some((u) => u.id === guest.id)).toBe(false);
+  });
 });
 
 describe("POST /api/admin/users/:id/credits", () => {

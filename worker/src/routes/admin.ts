@@ -65,6 +65,7 @@ adminRoutes.get("/users", async (c) => {
   // created_at alone only has second resolution.
   const { results } = await c.env.DB.prepare(
     `SELECT id, username, credits, is_admin, created_at FROM users
+     WHERE is_guest = 0
      ORDER BY created_at DESC, rowid DESC
      LIMIT ? OFFSET ?`,
   )
