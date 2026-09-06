@@ -61,6 +61,19 @@ function adjustCredits(
   });
 }
 
+function setCredits(
+  cookie: string,
+  userId: string,
+  amount: unknown,
+  reason: unknown,
+) {
+  return SELF.fetch(`http://example.com/api/admin/users/${userId}/credits`, {
+    method: "POST",
+    headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ mode: "set", amount, reason }),
+  });
+}
+
 function deleteUser(cookie: string, userId: string) {
   return SELF.fetch(`http://example.com/api/admin/users/${userId}`, {
     method: "DELETE",
@@ -193,6 +206,105 @@ describe("POST /api/admin/users/:id/credits", () => {
 
     const res = await adjustCredits(admin.cookie, crypto.randomUUID(), 100, "test");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/admin/users/:id/credits — mode: 'set'", () => {
+  it("sets the balance to an exact value and ledgers the computed delta", async () => {
+    const admin = await loginAsAdmin();
+    const user = await registerUser("setexact");
+    // Seeded balance is 5000 (signup grant); set straight to 12345.
+    const res = await setCredits(admin.cookie, user.id, 12345, "reconciliation");
+    expect(res.status).toBe(200);
+    expect((await res.json<{ credits: number }>()).credits).toBe(12345);
+
+    const userRow = await env.DB.prepare("SELECT credits FROM users WHERE id = ?")
+      .bind(user.id)
+      .first<{ credits: number }>();
+    expect(userRow?.credits).toBe(12345);
+
+    const ledger = await env.DB.prepare(
+      `SELECT amount, note FROM credit_ledger
+       WHERE user_id = ? AND reason = 'admin_adjustment' ORDER BY id ASC`,
+    )
+      .bind(user.id)
+      .all<{ amount: number; note: string | null }>();
+    expect(ledger.results).toHaveLength(1);
+    // 12345 - 5000 (seeded balance) = 7345.
+    expect(ledger.results?.[0]).toMatchObject({ amount: 7345, note: "reconciliation" });
+  });
+
+  it("sets the balance to a negative value", async () => {
+    const admin = await loginAsAdmin();
+    const user = await registerUser("setneg");
+
+    const res = await setCredits(admin.cookie, user.id, -500, "clawback");
+    expect(res.status).toBe(200);
+    expect((await res.json<{ credits: number }>()).credits).toBe(-500);
+
+    const userRow = await env.DB.prepare("SELECT credits FROM users WHERE id = ?")
+      .bind(user.id)
+      .first<{ credits: number }>();
+    expect(userRow?.credits).toBe(-500);
+
+    const ledger = await env.DB.prepare(
+      `SELECT amount FROM credit_ledger WHERE user_id = ? AND reason = 'admin_adjustment'`,
+    )
+      .bind(user.id)
+      .all<{ amount: number }>();
+    expect(ledger.results?.[0]?.amount).toBe(-5500);
+  });
+
+  it("setting to the current balance is a no-op success with no ledger row", async () => {
+    const admin = await loginAsAdmin();
+    const user = await registerUser("setsame");
+    // Balance is 5000 immediately after registration/seeded grant.
+    const res = await setCredits(admin.cookie, user.id, 5000, "noop-set");
+    expect(res.status).toBe(200);
+    expect((await res.json<{ credits: number }>()).credits).toBe(5000);
+
+    const userRow = await env.DB.prepare("SELECT credits FROM users WHERE id = ?")
+      .bind(user.id)
+      .first<{ credits: number }>();
+    expect(userRow?.credits).toBe(5000);
+
+    const ledger = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM credit_ledger WHERE user_id = ? AND reason = 'admin_adjustment'`,
+    )
+      .bind(user.id)
+      .first<{ n: number }>();
+    expect(ledger?.n ?? 0).toBe(0);
+  });
+
+  it("allows a zero-value target amount (not rejected as a no-op-only-when-equal-to-current check)", async () => {
+    const admin = await loginAsAdmin();
+    const user = await registerUser("setzero");
+
+    const res = await setCredits(admin.cookie, user.id, 0, "zero-out");
+    expect(res.status).toBe(200);
+    expect((await res.json<{ credits: number }>()).credits).toBe(0);
+
+    const ledger = await env.DB.prepare(
+      `SELECT amount FROM credit_ledger WHERE user_id = ? AND reason = 'admin_adjustment'`,
+    )
+      .bind(user.id)
+      .all<{ amount: number }>();
+    expect(ledger.results?.[0]?.amount).toBe(-5000);
+  });
+
+  it("rejects a missing reason even in set mode", async () => {
+    const admin = await loginAsAdmin();
+    const user = await registerUser("setnorsn");
+
+    const res = await SELF.fetch(
+      `http://example.com/api/admin/users/${user.id}/credits`,
+      {
+        method: "POST",
+        headers: { cookie: admin.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ mode: "set", amount: 100 }),
+      },
+    );
+    expect(res.status).toBe(400);
   });
 });
 

@@ -22,7 +22,15 @@ export function Header() {
           >
             {user.credits.toLocaleString()} credits
           </span>
-          <span className="app-header__username">{user.username}</span>
+          <span className="app-header__username">
+            {user.username}
+            {user.is_guest && <span className="guest-tag">guest</span>}
+          </span>
+          {user.is_admin && (
+            <Link to="/admin" className="button button--ghost">
+              Admin
+            </Link>
+          )}
           <button
             type="button"
             className="button button--ghost"

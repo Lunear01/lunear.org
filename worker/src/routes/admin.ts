@@ -79,6 +79,7 @@ adminRoutes.get("/users", async (c) => {
 });
 
 interface CreditAdjustmentBody {
+  mode?: unknown;
   amount?: unknown;
   reason?: unknown;
 }
@@ -89,8 +90,14 @@ adminRoutes.post("/users/:id/credits", async (c) => {
     .json<CreditAdjustmentBody>()
     .catch(() => ({}) as CreditAdjustmentBody);
   const { amount, reason } = body;
+  // 'adjust' is the default so existing callers (tests/UI) that never send
+  // `mode` keep applying a signed delta, unchanged.
+  const mode = body.mode === "set" ? "set" : "adjust";
 
-  if (typeof amount !== "number" || !Number.isInteger(amount) || amount === 0) {
+  if (typeof amount !== "number" || !Number.isInteger(amount)) {
+    return c.json({ error: "amount must be an integer" }, 400);
+  }
+  if (mode === "adjust" && amount === 0) {
     return c.json({ error: "amount must be a non-zero integer" }, 400);
   }
   if (typeof reason !== "string" || reason.trim().length === 0) {
@@ -99,19 +106,40 @@ adminRoutes.post("/users/:id/credits", async (c) => {
 
   const target = await c.env.DB.prepare("SELECT id FROM users WHERE id = ?")
     .bind(targetId)
-    .first();
+    .first<{ id: string }>();
   if (!target) return c.json({ error: "user not found" }, 404);
 
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO credit_ledger (user_id, amount, game_id, reason, idempotency_key, note)
-       VALUES (?, ?, NULL, 'admin_adjustment', NULL, ?)`,
-    ).bind(targetId, amount, reason),
-    c.env.DB.prepare("UPDATE users SET credits = credits + ? WHERE id = ?").bind(
-      amount,
-      targetId,
-    ),
-  ]);
+  if (mode === "adjust") {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO credit_ledger (user_id, amount, game_id, reason, idempotency_key, note)
+         VALUES (?, ?, NULL, 'admin_adjustment', NULL, ?)`,
+      ).bind(targetId, amount, reason),
+      c.env.DB.prepare("UPDATE users SET credits = credits + ? WHERE id = ?").bind(
+        amount,
+        targetId,
+      ),
+    ]);
+  } else {
+    // Absolute set: the ledger delta (target - current) is derived from a
+    // subquery over the live `users` row rather than a value read before
+    // this batch, so it reflects the balance at the instant this batch runs
+    // (D1 batches execute their statements in order inside one transaction)
+    // instead of racing a balance change between an earlier read and this
+    // write. The WHERE credits <> ? guard skips the ledger row entirely when
+    // the target equals the current balance — a zero-amount ledger entry
+    // would be meaningless, and the spec calls that case a no-op. The
+    // trailing UPDATE runs unconditionally; it's a harmless no-op write when
+    // the balance was already at the target.
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO credit_ledger (user_id, amount, game_id, reason, idempotency_key, note)
+         SELECT id, ? - credits, NULL, 'admin_adjustment', NULL, ?
+         FROM users WHERE id = ? AND credits <> ?`,
+      ).bind(amount, reason, targetId, amount),
+      c.env.DB.prepare("UPDATE users SET credits = ? WHERE id = ?").bind(amount, targetId),
+    ]);
+  }
 
   const updated = await c.env.DB.prepare("SELECT credits FROM users WHERE id = ?")
     .bind(targetId)

@@ -5,6 +5,7 @@ import {
   deleteUser,
   listUsers,
   type AdminUser,
+  type CreditMode,
 } from "../api/admin";
 import { useAuth } from "../context/AuthContext";
 
@@ -81,7 +82,7 @@ export default function Admin() {
                     className="button button--small"
                     onClick={() => setCreditDialog({ user: row })}
                   >
-                    Adjust credits
+                    Credits
                   </button>
                   <button
                     type="button"
@@ -163,6 +164,7 @@ function CreditDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const [mode, setMode] = useState<CreditMode>("adjust");
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +172,11 @@ function CreditDialog({
 
   const handleSubmit = async () => {
     const parsed = Number(amount);
-    if (!Number.isInteger(parsed) || parsed === 0) {
+    if (!Number.isInteger(parsed)) {
+      setError("amount must be a whole number");
+      return;
+    }
+    if (mode === "adjust" && parsed === 0) {
       setError("amount must be a non-zero whole number");
       return;
     }
@@ -182,10 +188,10 @@ function CreditDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await adjustCredits(user.id, parsed, reason.trim());
+      await adjustCredits(user.id, parsed, reason.trim(), mode);
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "failed to adjust credits");
+      setError(err instanceof ApiError ? err.message : "failed to update credits");
     } finally {
       setSubmitting(false);
     }
@@ -201,18 +207,39 @@ function CreditDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="credit-dialog-title" className="modal__title">
-          Adjust credits &mdash; {user.username}
+          Credits &mdash; {user.username}
         </h2>
         <p className="modal__hint">Current balance: {user.credits.toLocaleString()}</p>
 
+        <div className="credit-mode-toggle" role="radiogroup" aria-label="Credit mode">
+          <button
+            type="button"
+            className={`button button--small ${mode === "adjust" ? "button--primary" : ""}`}
+            aria-pressed={mode === "adjust"}
+            onClick={() => setMode("adjust")}
+          >
+            Adjust
+          </button>
+          <button
+            type="button"
+            className={`button button--small ${mode === "set" ? "button--primary" : ""}`}
+            aria-pressed={mode === "set"}
+            onClick={() => setMode("set")}
+          >
+            Set to
+          </button>
+        </div>
+
         <label className="field">
-          <span className="field__label">Amount (signed)</span>
+          <span className="field__label">
+            {mode === "adjust" ? "Amount (signed delta)" : "New balance"}
+          </span>
           <input
             className="field__input"
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder="e.g. 500 or -200"
+            placeholder={mode === "adjust" ? "e.g. 500 or -200" : "e.g. 0 or -100"}
             autoFocus
           />
         </label>

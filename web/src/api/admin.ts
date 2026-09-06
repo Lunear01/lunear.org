@@ -18,12 +18,15 @@ export function listUsers(limit: number, offset: number): Promise<UserListPage> 
   return apiGet<UserListPage>(`/api/admin/users?limit=${limit}&offset=${offset}`);
 }
 
+export type CreditMode = "adjust" | "set";
+
 export function adjustCredits(
   userId: string,
   amount: number,
   reason: string,
+  mode: CreditMode = "adjust",
 ): Promise<{ id: string; credits: number | null }> {
-  return apiPost(`/api/admin/users/${userId}/credits`, { amount, reason });
+  return apiPost(`/api/admin/users/${userId}/credits`, { mode, amount, reason });
 }
 
 export function deleteUser(userId: string): Promise<{ ok: boolean }> {
