@@ -136,6 +136,11 @@ a {
 }
 
 .button {
+  /* inline-flex so <a class="button"> centers like a native <button> */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   min-height: var(--touch-target);
   padding: 0 1.1rem;
   border-radius: var(--radius);
