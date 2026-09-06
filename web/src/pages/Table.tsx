@@ -47,10 +47,10 @@ function seatLabel(seats: readonly SeatStatus[] | null, seat: Seat): string {
 }
 
 export default function Table() {
-  const { tableId = "" } = useParams<{ tableId: string }>();
+  const { gameId = "doudizhu", tableId = "" } = useParams<{ gameId: string; tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(tableId);
+  const { status, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(gameId, tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);

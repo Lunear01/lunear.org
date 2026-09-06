@@ -81,18 +81,19 @@ const BASE_RECONNECT_DELAY_MS = 500;
 const MAX_RECONNECT_DELAY_MS = 8000;
 
 /**
- * Owns the single WebSocket for a game table (GET /api/tables/:tableId/ws —
- * session cookie auth rides along automatically on the upgrade request for a
- * normal user, no client-side header needed. A guest has no cookie, and a
- * browser can't set an Authorization header on a WebSocket upgrade, so a
- * guest's bearer token instead rides as a `?token=` query param — see
- * requireAuth's query-param fallback in worker/src/routes/tables.ts).
+ * Owns the single WebSocket for a game table (GET
+ * /api/tables/:gameId/:tableId/ws — session cookie auth rides along
+ * automatically on the upgrade request for a normal user, no client-side
+ * header needed. A guest has no cookie, and a browser can't set an
+ * Authorization header on a WebSocket upgrade, so a guest's bearer token
+ * instead rides as a `?token=` query param — see requireAuth's query-param
+ * fallback in worker/src/routes/tables.ts).
  * Reconnects with exponential backoff while the consuming component stays
  * mounted; closes for good on unmount. All server
  * "state" frames drive one reducer; "error", "settled", and "aborted"
  * frames are exposed separately for the page to render as a toast / overlay.
  */
-export function useGameSocket(tableId: string) {
+export function useGameSocket(gameId: string, tableId: string) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const socketRef = useRef<WebSocket | null>(null);
   const attemptRef = useRef(0);
@@ -109,7 +110,7 @@ export function useGameSocket(tableId: string) {
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
       const guestToken = getGuestToken();
       const url =
-        `${proto}//${window.location.host}/api/tables/${encodeURIComponent(tableId)}/ws` +
+        `${proto}//${window.location.host}/api/tables/${encodeURIComponent(gameId)}/${encodeURIComponent(tableId)}/ws` +
         (guestToken ? `?token=${encodeURIComponent(guestToken)}` : "");
       const ws = new WebSocket(url);
       socketRef.current = ws;
@@ -152,7 +153,7 @@ export function useGameSocket(tableId: string) {
       socketRef.current?.close();
       socketRef.current = null;
     };
-  }, [tableId]);
+  }, [gameId, tableId]);
 
   const send = useCallback((message: ClientMessage) => {
     const ws = socketRef.current;

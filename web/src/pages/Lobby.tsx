@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext";
 
 const GAME_NAMES: Record<string, string> = {
   doudizhu: "Fight the Landlord",
+  liarsbar: "Liar's Bar",
 };
 
 const OPEN_PARTIES_REFRESH_MS = 5000;
@@ -57,7 +58,7 @@ export default function Lobby() {
       (result) => {
         if (result.status === "matched" && result.tableId) {
           cancelPollRef.current?.();
-          navigate(`/table/${result.tableId}`);
+          navigate(`/table/${gameId}/${result.tableId}`);
         }
       },
       (err) => {
@@ -127,7 +128,7 @@ export default function Lobby() {
     setJoiningTableId(tableId);
     try {
       const result = await lobbyApi.joinParty(gameId, tableId);
-      navigate(`/table/${result.tableId}`);
+      navigate(`/table/${gameId}/${result.tableId}`);
     } catch (err) {
       setJoinError(describeJoinError(err, "party"));
       setJoiningTableId(null);
@@ -140,7 +141,7 @@ export default function Lobby() {
     setCodeSubmitting(true);
     try {
       const result = await lobbyApi.joinByCode(gameId, code.trim());
-      navigate(`/table/${result.tableId}`);
+      navigate(`/table/${gameId}/${result.tableId}`);
     } catch (err) {
       setCodeError(describeJoinError(err, "code"));
     } finally {
@@ -219,7 +220,7 @@ export default function Lobby() {
               <button
                 type="button"
                 className="button button--primary"
-                onClick={() => navigate(`/table/${created.tableId}`)}
+                onClick={() => navigate(`/table/${gameId}/${created.tableId}`)}
               >
                 Go to table
               </button>
@@ -301,7 +302,7 @@ export default function Lobby() {
             if (result.inviteCode) {
               setCreated(result);
             } else {
-              navigate(`/table/${result.tableId}`);
+              navigate(`/table/${gameId}/${result.tableId}`);
             }
           }}
         />
