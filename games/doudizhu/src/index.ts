@@ -6,10 +6,12 @@ export * from "./cards";
 export * from "./deal";
 export * from "./combos";
 export * from "./game";
+export * from "./suggest";
 
 import { applyAction, createGame, settle, viewFor } from "./game";
+import { suggestPlay } from "./suggest";
 
-export const engine = { createGame, applyAction, viewFor, settle };
+export const engine = { createGame, applyAction, viewFor, settle, suggestPlay };
 
 export const gameDefinition = {
   id: "doudizhu",
