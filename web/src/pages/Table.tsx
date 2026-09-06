@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+// Runtime import of the pure, dependency-free doudizhu engine — this is the
+// one place web/ pulls game logic (not just types) into the client bundle,
+// so a hint can be computed locally without a server round-trip.
+import { suggestPlay } from "doudizhu";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
 import { sortForHand } from "../ws/cards";
-import type { ErrorCode, ErrorMessage, PlayRecord, Seat, SeatStatus } from "../ws/types";
+import type { ClientMessage, ErrorCode, ErrorMessage, PlayRecord, Seat, SeatStatus } from "../ws/types";
 import { useGameSocket } from "../ws/useGameSocket";
 
 const SEATS: readonly Seat[] = [0, 1, 2];
@@ -37,24 +41,13 @@ function seatLabel(seats: readonly SeatStatus[] | null, seat: Seat): string {
   return seats?.find((s) => s.seat === seat)?.username ?? `Seat ${seat}`;
 }
 
-function Countdown({ deadline }: { deadline: number | null }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (deadline === null) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [deadline]);
-  if (deadline === null) return null;
-  const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
-  return <span className="table-countdown">{seconds}s</span>;
-}
-
 export default function Table() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const { user, refresh } = useAuth();
-  const { status, seats, view, turnDeadline, error, settled, send, dismissError } = useGameSocket(tableId);
+  const { status, seats, view, error, settled, send, dismissError } = useGameSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [hintMessage, setHintMessage] = useState<string | null>(null);
 
   const mySeat = useMemo<Seat | null>(() => {
     if (view) return view.viewer;
@@ -76,6 +69,13 @@ export default function Table() {
     return () => clearTimeout(t);
   }, [error, dismissError]);
 
+  // Auto-dismiss the hint's "nothing beats it" message.
+  useEffect(() => {
+    if (!hintMessage) return;
+    const t = setTimeout(() => setHintMessage(null), 2500);
+    return () => clearTimeout(t);
+  }, [hintMessage]);
+
   // Settlement includes our fresh balance — push it into the header immediately.
   useEffect(() => {
     if (settled?.newBalance !== undefined) void refresh();
@@ -88,6 +88,29 @@ export default function Table() {
       else next.add(id);
       return next;
     });
+  };
+
+  // Any real game action supersedes a still-showing hint message.
+  const sendAction = (message: ClientMessage) => {
+    setHintMessage(null);
+    send(message);
+  };
+
+  const handleHint = () => {
+    if (!view || view.phase !== "playing") return;
+    // `lastPlay` is null both while genuinely leading a fresh trick AND right
+    // after a trick resets from two passes (the engine clears it and hands
+    // the turn back to the leader) — either way it means "beat nothing,
+    // lead freely", which is exactly the `lastPlay: Combo | null` contract
+    // suggestPlay expects.
+    const toBeat = view.lastPlay ? view.lastPlay.combo : null;
+    const suggestion = suggestPlay(view.hand, toBeat);
+    if (suggestion) {
+      setSelected(new Set(suggestion.map((c) => c.id)));
+    } else {
+      setSelected(new Set());
+      setHintMessage("No playable hand — pass");
+    }
   };
 
   const mySeatRow = mySeat !== null ? seats?.find((s) => s.seat === mySeat) : undefined;
@@ -125,7 +148,7 @@ export default function Table() {
         </div>
 
         <div className="table-center card">
-          <CenterArea seats={seats} view={view} turnDeadline={turnDeadline} />
+          <CenterArea seats={seats} view={view} />
         </div>
 
         {view && "hand" in view && (
@@ -145,6 +168,12 @@ export default function Table() {
           </div>
         )}
 
+        {hintMessage && (
+          <p className="hint-toast" role="status">
+            {hintMessage}
+          </p>
+        )}
+
         <div className="table-actions">
           {view?.phase === "bidding" && mySeat === view.currentBidder && (
             <>
@@ -154,12 +183,12 @@ export default function Table() {
                   type="button"
                   className="button button--primary"
                   disabled={amount <= view.highestBid}
-                  onClick={() => send({ type: "bid", amount })}
+                  onClick={() => sendAction({ type: "bid", amount })}
                 >
                   Bid {amount}
                 </button>
               ))}
-              <button type="button" className="button" onClick={() => send({ type: "pass" })}>
+              <button type="button" className="button" onClick={() => sendAction({ type: "pass" })}>
                 Pass
               </button>
             </>
@@ -171,15 +200,18 @@ export default function Table() {
                 type="button"
                 className="button"
                 disabled={view.lastPlay === null}
-                onClick={() => send({ type: "pass" })}
+                onClick={() => sendAction({ type: "pass" })}
               >
                 Pass
+              </button>
+              <button type="button" className="button" onClick={handleHint}>
+                Hint
               </button>
               <button
                 type="button"
                 className="button button--primary"
                 disabled={selected.size === 0}
-                onClick={() => send({ type: "play", cardIds: [...selected] })}
+                onClick={() => sendAction({ type: "play", cardIds: [...selected] })}
               >
                 Play
               </button>
@@ -191,7 +223,7 @@ export default function Table() {
               type="button"
               className="button button--primary"
               disabled={amReady}
-              onClick={() => send({ type: "ready" })}
+              onClick={() => sendAction({ type: "ready" })}
             >
               {amReady ? "Waiting for others…" : view?.phase === "finished" ? "Ready for next hand" : "Ready"}
             </button>
@@ -217,7 +249,7 @@ export default function Table() {
               type="button"
               className="button button--primary"
               disabled={amReady}
-              onClick={() => send({ type: "ready" })}
+              onClick={() => sendAction({ type: "ready" })}
             >
               {amReady ? "Waiting for others…" : "Ready for next hand"}
             </button>
@@ -288,11 +320,9 @@ function HistoryFeed({ history }: { history: readonly PlayRecord[] }) {
 function CenterArea({
   seats,
   view,
-  turnDeadline,
 }: {
   seats: readonly SeatStatus[] | null;
   view: ReturnType<typeof useGameSocket>["view"];
-  turnDeadline: number | null;
 }) {
   if (!view) {
     const filled = seats?.length ?? 0;
@@ -319,8 +349,7 @@ function CenterArea({
           <p className="table-center__turn">
             {view.currentBidder === view.viewer
               ? "Your turn to bid"
-              : `Waiting on ${seatLabel(seats, view.currentBidder)}`}{" "}
-            <Countdown deadline={turnDeadline} />
+              : `Waiting on ${seatLabel(seats, view.currentBidder)}`}
           </p>
         </div>
       );
@@ -350,8 +379,7 @@ function CenterArea({
             )}
           </div>
           <p className="table-center__turn">
-            {view.currentTurn === view.viewer ? "Your turn" : `Waiting on ${seatLabel(seats, view.currentTurn)}`}{" "}
-            <Countdown deadline={turnDeadline} />
+            {view.currentTurn === view.viewer ? "Your turn" : `Waiting on ${seatLabel(seats, view.currentTurn)}`}
           </p>
           <HistoryFeed history={view.history} />
         </div>

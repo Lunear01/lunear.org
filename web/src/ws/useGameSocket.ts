@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { getGuestToken } from "../api/client";
 import type {
   ClientMessage,
   ErrorMessage,
@@ -15,7 +16,6 @@ interface GameSocketState {
   round: number;
   seats: readonly SeatStatus[] | null;
   view: RedactedView | null;
-  turnDeadline: number | null;
   error: ErrorMessage | null;
   settled: SettledMessage | null;
 }
@@ -30,7 +30,6 @@ const initialState: GameSocketState = {
   round: 0,
   seats: null,
   view: null,
-  turnDeadline: null,
   error: null,
   settled: null,
 };
@@ -52,7 +51,6 @@ function reducer(state: GameSocketState, action: Action): GameSocketState {
           round: msg.round,
           seats: msg.seats,
           view: msg.view,
-          turnDeadline: msg.turnDeadline,
           settled,
         };
       }
@@ -71,9 +69,13 @@ const MAX_RECONNECT_DELAY_MS = 8000;
 
 /**
  * Owns the single WebSocket for a game table (GET /api/tables/:tableId/ws —
- * session cookie auth rides along automatically on the upgrade request, no
- * client-side header needed). Reconnects with exponential backoff while the
- * consuming component stays mounted; closes for good on unmount. All server
+ * session cookie auth rides along automatically on the upgrade request for a
+ * normal user, no client-side header needed. A guest has no cookie, and a
+ * browser can't set an Authorization header on a WebSocket upgrade, so a
+ * guest's bearer token instead rides as a `?token=` query param — see
+ * requireAuth's query-param fallback in worker/src/routes/tables.ts).
+ * Reconnects with exponential backoff while the consuming component stays
+ * mounted; closes for good on unmount. All server
  * "state" frames drive one reducer; "error" and "settled" frames are
  * exposed separately for the page to render as a toast / overlay.
  */
@@ -92,7 +94,10 @@ export function useGameSocket(tableId: string) {
       dispatch({ kind: "status", status: attemptRef.current === 0 ? "connecting" : "reconnecting" });
 
       const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${proto}//${window.location.host}/api/tables/${encodeURIComponent(tableId)}/ws`;
+      const guestToken = getGuestToken();
+      const url =
+        `${proto}//${window.location.host}/api/tables/${encodeURIComponent(tableId)}/ws` +
+        (guestToken ? `?token=${encodeURIComponent(guestToken)}` : "");
       const ws = new WebSocket(url);
       socketRef.current = ws;
 

@@ -68,8 +68,6 @@ export interface StateMessage {
    * engine's viewFor contract).
    */
   readonly view: RedactedView | null;
-  /** Epoch ms deadline for the current bidder/turn; null when no timer is active. */
-  readonly turnDeadline: number | null;
 }
 
 export type ErrorCode =
