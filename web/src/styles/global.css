@@ -675,7 +675,43 @@ a {
 .table-opponents-row {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 0.5rem;
+}
+
+/* Revealed landlord bottom cards: quiet reference strip between the two
+   opponent panels, out of the way of the main play area. */
+.table-bottomcards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  opacity: 0.85;
+}
+
+.table-bottomcards__label {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.table-bottomcards__row {
+  display: flex;
+  gap: 2px;
+}
+
+.table-bottomcards__row .playing-card {
+  margin-left: 0;
+}
+
+/* The play-to-beat is the focal point: full-size cards, no fan overlap. */
+.table-cardrow--lastplay {
+  gap: 4px;
+}
+
+.table-cardrow--lastplay .playing-card {
+  margin-left: 0;
 }
 
 .table-opponent {

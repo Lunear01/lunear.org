@@ -180,6 +180,16 @@ export default function Table() {
       <div className="table-felt">
         <div className="table-opponents-row">
           {leftSeat !== null && <OpponentSeat seat={leftSeat} seats={seats} view={view} />}
+          {view && view.phase === "playing" && (
+            <div className="table-bottomcards" aria-label="Bottom cards">
+              <span className="table-bottomcards__label">Bottom cards</span>
+              <div className="table-bottomcards__row">
+                {view.landlordCards.map((c) => (
+                  <PlayingCard key={c.id} card={c} small />
+                ))}
+              </div>
+            </div>
+          )}
           {rightSeat !== null && <OpponentSeat seat={rightSeat} seats={seats} view={view} />}
         </div>
 
@@ -395,18 +405,10 @@ function CenterArea({
       return (
         <div>
           <div>
-            <p className="table-center__hint">Bottom cards</p>
-            <div className="table-cardrow">
-              {view.landlordCards.map((c) => (
-                <PlayingCard key={c.id} card={c} small />
-              ))}
-            </div>
-          </div>
-          <div>
             {view.lastPlay ? (
-              <div className="table-cardrow">
+              <div className="table-cardrow table-cardrow--lastplay">
                 {view.lastPlay.combo.cards.map((c) => (
-                  <PlayingCard key={c.id} card={c} small />
+                  <PlayingCard key={c.id} card={c} />
                 ))}
               </div>
             ) : (
