@@ -9,6 +9,7 @@ import { hashPassword, verifyPassword } from "../auth/password";
 import {
   type AuthUser,
   type AuthVariables,
+  GUEST_SESSION_TTL_MS,
   clearSessionCookie,
   createSession,
   requireAuth,
@@ -31,7 +32,38 @@ function serializeUser(user: AuthUser) {
     username: user.username,
     credits: user.credits,
     is_admin: user.isAdmin,
+    is_guest: user.isGuest,
   };
+}
+
+const GUEST_STARTING_CREDITS = 5000;
+const GUEST_USERNAME_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const MAX_GUEST_USERNAME_ATTEMPTS = 5;
+
+function randomGuestSuffix(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(5));
+  return Array.from(bytes, (b) => GUEST_USERNAME_ALPHABET[b % GUEST_USERNAME_ALPHABET.length]).join(
+    "",
+  );
+}
+
+// Best-effort cleanup: guest accounts with no unexpired session are dead
+// weight (the guest already lost access when their session expired, since
+// the token lives only in the browser tab's memory). ON DELETE CASCADE on
+// sessions/credit_ledger wipes their history along with the user row.
+async function cleanupStaleGuests(db: D1Database): Promise<void> {
+  try {
+    await db
+      .prepare(
+        `DELETE FROM users
+         WHERE is_guest = 1
+           AND id NOT IN (SELECT user_id FROM sessions WHERE expires_at > datetime('now'))`,
+      )
+      .run();
+  } catch {
+    // Never let opportunistic cleanup block guest creation.
+  }
 }
 
 interface Credentials {
@@ -81,7 +113,66 @@ authRoutes.post("/register", async (c) => {
   setSessionCookie(c, session.id);
 
   return c.json(
-    serializeUser({ id: userId, username, credits: 5000, isAdmin: false }),
+    serializeUser({ id: userId, username, credits: 5000, isAdmin: false, isGuest: false }),
+    201,
+  );
+});
+
+// Ephemeral account: 5000 credits, no password anyone can know, no cookie —
+// the session token comes back in the body and the client is expected to
+// hold it only in memory (see web/src/context/AuthContext.tsx), so a reload
+// loses it by construction. Sessions are short-lived (24h) to bound how long
+// an abandoned guest's row lingers before cleanupStaleGuests() reaps it.
+authRoutes.post("/guest", async (c) => {
+  await cleanupStaleGuests(c.env.DB);
+
+  const userId = crypto.randomUUID();
+  const passwordHash = await hashPassword(crypto.randomUUID());
+
+  let username = "";
+  let created = false;
+  for (let attempt = 0; attempt < MAX_GUEST_USERNAME_ATTEMPTS && !created; attempt++) {
+    username = `Guest_${randomGuestSuffix()}`;
+    try {
+      await c.env.DB.batch([
+        c.env.DB.prepare(
+          "INSERT INTO users (id, username, password_hash, credits, is_admin, is_guest) VALUES (?, ?, ?, 0, 0, 1)",
+        ).bind(userId, username, passwordHash),
+        c.env.DB.prepare(
+          `INSERT INTO credit_ledger (user_id, amount, game_id, reason, idempotency_key)
+           VALUES (?, ?, NULL, 'signup_grant', ?)`,
+        ).bind(userId, GUEST_STARTING_CREDITS, `signup:${userId}`),
+        c.env.DB.prepare("UPDATE users SET credits = credits + ? WHERE id = ?").bind(
+          GUEST_STARTING_CREDITS,
+          userId,
+        ),
+      ]);
+      created = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes("UNIQUE")) throw err;
+      // Username collision — loop and retry with a fresh random suffix.
+    }
+  }
+  if (!created) {
+    return c.json({ error: "could not allocate a guest account, try again" }, 500);
+  }
+
+  const session = await createSession(c.env.DB, userId, GUEST_SESSION_TTL_MS);
+
+  // No setSessionCookie() call — this is the whole point of a guest: nothing
+  // persists client-side that survives a reload.
+  return c.json(
+    {
+      ...serializeUser({
+        id: userId,
+        username,
+        credits: GUEST_STARTING_CREDITS,
+        isAdmin: false,
+        isGuest: true,
+      }),
+      token: session.id,
+    },
     201,
   );
 });
@@ -105,7 +196,7 @@ authRoutes.post("/login", async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    "SELECT id, username, password_hash, credits, is_admin FROM users WHERE username = ?",
+    "SELECT id, username, password_hash, credits, is_admin, is_guest FROM users WHERE username = ?",
   )
     .bind(username)
     .first<{
@@ -114,6 +205,7 @@ authRoutes.post("/login", async (c) => {
       password_hash: string;
       credits: number;
       is_admin: number;
+      is_guest: number;
     }>();
 
   // Same failure path (record + identical message) whether the user exists
@@ -133,6 +225,7 @@ authRoutes.post("/login", async (c) => {
       username: row.username,
       credits: row.credits,
       isAdmin: row.is_admin === 1,
+      isGuest: row.is_guest === 1,
     }),
   );
 });

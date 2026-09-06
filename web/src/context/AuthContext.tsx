@@ -8,13 +8,15 @@ import {
   type ReactNode,
 } from "react";
 import { ApiError } from "../api/client";
-import { fetchMe, logout as apiLogout, type User } from "../api/auth";
+import { fetchMe, guestLogin, logout as apiLogout, type User } from "../api/auth";
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   /** Re-fetch /api/auth/me, e.g. after login/register or a credit change. */
   refresh: () => Promise<void>;
+  /** POST /api/auth/guest, stash the returned bearer token in memory, load the header. */
+  loginAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -46,6 +48,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [refresh]);
 
+  const loginAsGuest = useCallback(async () => {
+    await guestLogin();
+    // Re-fetch via /api/auth/me (now that the guest token is set) rather than
+    // trusting guestLogin()'s own response body, matching the login/register
+    // convention: the header always reads from this single source of truth.
+    await refresh();
+  }, [refresh]);
+
   const logout = useCallback(async () => {
     try {
       await apiLogout();
@@ -55,8 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, refresh, logout }),
-    [user, loading, refresh, logout],
+    () => ({ user, loading, refresh, loginAsGuest, logout }),
+    [user, loading, refresh, loginAsGuest, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

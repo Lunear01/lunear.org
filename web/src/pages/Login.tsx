@@ -5,7 +5,7 @@ import { login } from "../api/auth";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
-  const { user, refresh } = useAuth();
+  const { user, refresh, loginAsGuest } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -13,6 +13,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [guestSubmitting, setGuestSubmitting] = useState(false);
 
   if (user) {
     const state = location.state as { from?: { pathname?: string } } | null;
@@ -42,6 +43,23 @@ export default function Login() {
       }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleGuest = async () => {
+    setError(null);
+    setGuestSubmitting(true);
+    try {
+      await loginAsGuest();
+      navigate("/");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("could not reach the server, try again");
+      }
+    } finally {
+      setGuestSubmitting(false);
     }
   };
 
@@ -85,6 +103,18 @@ export default function Login() {
 
         <p className="auth-card__switch">
           Need an account? <Link to="/register">Register</Link>
+        </p>
+
+        <button
+          type="button"
+          className="button button--ghost auth-card__guest"
+          disabled={guestSubmitting}
+          onClick={() => void handleGuest()}
+        >
+          {guestSubmitting ? "Starting guest session…" : "Continue as guest"}
+        </button>
+        <p className="auth-card__hint auth-card__guest-hint">
+          Guest balance is not saved — lost on reload.
         </p>
       </form>
     </div>

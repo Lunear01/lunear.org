@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AuthVariables } from "../auth/session";
-import { requireAuth } from "../auth/session";
+import { extractSessionId, loadSessionUser, requireAuth } from "../auth/session";
 import { getGameDefinition } from "../registry";
 
 export const tableRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -59,7 +59,11 @@ tableRoutes.post("/:tableId/init", requireAuth, async (c) => {
   return c.json({ ok: true, tableId });
 });
 
-tableRoutes.get("/:tableId/ws", requireAuth, async (c) => {
+// Not using the shared `requireAuth` middleware here: a browser's WebSocket
+// API can't set custom headers on the upgrade request, so guests (who carry
+// their session as a bearer token, never a cookie) need a `?token=` query
+// param fallback that's specific to this route, not general HTTP auth.
+tableRoutes.get("/:tableId/ws", async (c) => {
   const tableId = c.req.param("tableId");
   if (!isValidTableId(tableId)) {
     return c.json({ error: "invalid table id" }, 400);
@@ -69,7 +73,12 @@ tableRoutes.get("/:tableId/ws", requireAuth, async (c) => {
     return c.json({ error: "expected websocket upgrade" }, 426);
   }
 
-  const user = c.get("user");
+  const sessionId = extractSessionId(c) ?? c.req.query("token");
+  if (!sessionId) return c.json({ error: "unauthorized" }, 401);
+  const loaded = await loadSessionUser(c.env.DB, sessionId);
+  if (!loaded) return c.json({ error: "unauthorized" }, 401);
+
+  const user = loaded.user;
   const headers = new Headers(c.req.raw.headers);
   headers.set("X-User-Id", user.id);
   headers.set("X-Username", user.username);

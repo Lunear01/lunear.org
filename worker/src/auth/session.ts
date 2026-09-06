@@ -3,12 +3,14 @@ import type { Context, MiddlewareHandler } from "hono";
 
 export const SESSION_COOKIE_NAME = "session_id";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+export const GUEST_SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export interface AuthUser {
   id: string;
   username: string;
   credits: number;
   isAdmin: boolean;
+  isGuest: boolean;
 }
 
 export interface AuthVariables {
@@ -28,9 +30,10 @@ export function generateSessionId(): string {
 export async function createSession(
   db: D1Database,
   userId: string,
+  ttlMs: number = SESSION_TTL_MS,
 ): Promise<{ id: string; expiresAt: string }> {
   const id = generateSessionId();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString();
   await db
     .prepare("INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)")
     .bind(id, userId, expiresAt)
@@ -59,6 +62,7 @@ interface SessionRow {
   username: string;
   credits: number;
   is_admin: number;
+  is_guest: number;
 }
 
 // Loads the session + owning user in one query; lazily deletes (and returns
@@ -69,7 +73,7 @@ export async function loadSessionUser(
 ): Promise<{ user: AuthUser; sessionId: string } | null> {
   const row = await db
     .prepare(
-      `SELECT s.id, s.expires_at, u.id AS user_id, u.username, u.credits, u.is_admin
+      `SELECT s.id, s.expires_at, u.id AS user_id, u.username, u.credits, u.is_admin, u.is_guest
        FROM sessions s JOIN users u ON u.id = s.user_id
        WHERE s.id = ?`,
     )
@@ -89,18 +93,36 @@ export async function loadSessionUser(
       username: row.username,
       credits: row.credits,
       isAdmin: row.is_admin === 1,
+      isGuest: row.is_guest === 1,
     },
   };
 }
 
-// Hono middleware: loads the session from the cookie, rejects with 401 when
-// missing/invalid/expired, otherwise exposes `user` and `sessionId` via c.get().
-// Reused as-is by S4 (admin) and S6 (room) routes.
+// Cookie first (normal users), then `Authorization: Bearer <token>` (guests —
+// see POST /api/auth/guest, which never sets a cookie). The WebSocket route
+// additionally accepts a `?token=` query param, but that's handled inline in
+// tables.ts rather than here since it shouldn't apply to plain HTTP routes.
+export function extractSessionId(c: Context): string | undefined {
+  const cookie = getCookie(c, SESSION_COOKIE_NAME);
+  if (cookie) return cookie;
+
+  const header = c.req.header("Authorization");
+  if (header?.startsWith("Bearer ")) {
+    const token = header.slice("Bearer ".length).trim();
+    if (token) return token;
+  }
+
+  return undefined;
+}
+
+// Hono middleware: loads the session from the cookie or Bearer header,
+// rejects with 401 when missing/invalid/expired, otherwise exposes `user`
+// and `sessionId` via c.get(). Reused as-is by S4 (admin) and S6 (room) routes.
 export const requireAuth: MiddlewareHandler<{
   Bindings: Env;
   Variables: AuthVariables;
 }> = async (c, next) => {
-  const sessionId = getCookie(c, SESSION_COOKIE_NAME);
+  const sessionId = extractSessionId(c);
   if (!sessionId) return c.json({ error: "unauthorized" }, 401);
 
   const loaded = await loadSessionUser(c.env.DB, sessionId);
