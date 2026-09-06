@@ -106,6 +106,14 @@ function joinByCode(gameId: string, cookie: string, code: string) {
   });
 }
 
+/** Ages a LobbyDO table row directly in storage — no real waiting. */
+async function ageTableRow(gameId: string, tableId: string, ageMs: number): Promise<void> {
+  const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(gameId));
+  await runInDurableObject(lobbyStub, async (_instance, doState) => {
+    doState.storage.sql.exec("UPDATE tables SET created_at = ? WHERE table_id = ?", Date.now() - ageMs, tableId);
+  });
+}
+
 function deleteUser(cookie: string, userId: string) {
   return SELF.fetch(`http://example.com/api/admin/users/${userId}`, {
     method: "DELETE",
@@ -383,6 +391,86 @@ describe("public directory", () => {
 
     const res = await joinParty(GAME_ID, joiner.cookie, created.tableId);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("open parties — inactive table cleanup", () => {
+  it("still lists a freshly created public table with no sockets yet (within the grace window)", async () => {
+    const host = await registerUser("freshtbl");
+    const created = await (
+      await createCustomGame(GAME_ID, host.cookie, { stake: 100, inviteOnly: false })
+    ).json<{ tableId: string }>();
+
+    const listed = await (await listOpenParties(GAME_ID, host.cookie)).json<Array<{ tableId: string }>>();
+    expect(listed.some((p) => p.tableId === created.tableId)).toBe(true);
+  });
+
+  it("drops and clears a never-connected public table once it's older than the inactivity grace", async () => {
+    const host = await registerUser("inactold");
+    const created = await (
+      await createCustomGame(GAME_ID, host.cookie, { stake: 100, inviteOnly: false })
+    ).json<{ tableId: string }>();
+
+    // Past the 2-minute grace, and nobody ever opened a socket — this is the
+    // abandoned-host-navigated-away scenario the fix targets.
+    await ageTableRow(GAME_ID, created.tableId, 3 * 60 * 1000);
+
+    const listed = await (await listOpenParties(GAME_ID, host.cookie)).json<Array<{ tableId: string }>>();
+    expect(listed.some((p) => p.tableId === created.tableId)).toBe(false);
+
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
+    await runInDurableObject(lobbyStub, async (_instance, doState) => {
+      expect(
+        doState.storage.sql.exec("SELECT 1 FROM tables WHERE table_id = ?", created.tableId).toArray(),
+      ).toHaveLength(0);
+      expect(
+        doState.storage.sql.exec("SELECT 1 FROM membership WHERE table_id = ?", created.tableId).toArray(),
+      ).toHaveLength(0);
+      expect(
+        doState.storage.sql.exec("SELECT 1 FROM invite_codes WHERE table_id = ?", created.tableId).toArray(),
+      ).toHaveLength(0);
+    });
+  });
+
+  it("lists a public table with a connected socket regardless of its age", async () => {
+    const host = await registerUser("oldconn");
+    const created = await (
+      await createCustomGame(GAME_ID, host.cookie, { stake: 100, inviteOnly: false })
+    ).json<{ tableId: string }>();
+
+    const ws = await openTableSocket(created.tableId, host.cookie);
+    await ageTableRow(GAME_ID, created.tableId, 60 * 60 * 1000); // 1h old, well past the grace
+
+    const listed = await (await listOpenParties(GAME_ID, host.cookie)).json<Array<{ tableId: string }>>();
+    expect(listed.some((p) => p.tableId === created.tableId)).toBe(true);
+
+    ws.close();
+  });
+
+  it("drops and clears a table whose hand already concluded, even if the lobby was never notified", async () => {
+    const host = await registerUser("stalefin");
+    const created = await (
+      await createCustomGame(GAME_ID, host.cookie, { stake: 100, inviteOnly: false })
+    ).json<{ tableId: string }>();
+
+    // Simulate a settle/abort notify that raced or failed to reach the
+    // lobby: mark the table's own game_state as settled directly, bypassing
+    // forceSettle (which itself calls notifySettled and would clear this row
+    // through the normal path, defeating the point of this test).
+    const tableStub = env.GAME_TABLE_DO.getByName(created.tableId);
+    await runInDurableObject(tableStub, async (_instance, doState) => {
+      doState.storage.sql.exec("UPDATE game_state SET settled = 1 WHERE id = 1");
+    });
+
+    const listed = await (await listOpenParties(GAME_ID, host.cookie)).json<Array<{ tableId: string }>>();
+    expect(listed.some((p) => p.tableId === created.tableId)).toBe(false);
+
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
+    await runInDurableObject(lobbyStub, async (_instance, doState) => {
+      expect(
+        doState.storage.sql.exec("SELECT 1 FROM tables WHERE table_id = ?", created.tableId).toArray(),
+      ).toHaveLength(0);
+    });
   });
 });
 

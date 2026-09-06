@@ -269,14 +269,37 @@ export class GameTableDO extends DurableObject<Env> {
     await this.trySettle();
   }
 
-  /** Live occupancy snapshot for the lobby directory (S7). Null if uninitialized. */
-  async getSeatSummary(): Promise<{ seatsFilled: number; seatsTotal: number; settled: boolean } | null> {
+  /**
+   * Live occupancy + status snapshot for the lobby directory (S7 listing)
+   * and seat-reservation reconciliation. Null if uninitialized (the
+   * GameTableDO's init() RPC never landed — the lobby treats that as dead
+   * too, since there's nothing real behind the table row).
+   *
+   * `finished` means the hand actually concluded — settled, aborted, or
+   * reached the engine's 'finished' phase. Deliberately narrower than
+   * getLiveness()'s same-named field, which also counts "no hand has ever
+   * started" (state_json still NULL) as finished — correct for the admin
+   * delete-user guard (isLiveMember), but wrong here: a table whose host
+   * hasn't connected yet still deserves LobbyDO.listOpenParties's grace
+   * window before being called abandoned, and that window would be
+   * pointless if a never-started table were already "finished".
+   * `anyConnected` mirrors getLiveness()'s field: at least one hibernation
+   * socket currently attached, on any seat.
+   */
+  async getSeatSummary(): Promise<
+    | { seatsFilled: number; seatsTotal: number; settled: boolean; finished: boolean; anyConnected: boolean }
+    | null
+  > {
     const meta = this.loadMetaRow();
     if (!meta) return null;
+    const row = this.loadGameStateRow();
+    const state = row.stateJson ? (JSON.parse(row.stateJson) as GameState) : null;
     return {
       seatsFilled: this.loadSeats().length,
       seatsTotal: SEATS.length,
-      settled: this.loadGameStateRow().settled === 1,
+      settled: row.settled === 1,
+      finished: row.settled === 1 || row.aborted === 1 || state?.phase === "finished",
+      anyConnected: this.ctx.getWebSockets().length > 0,
     };
   }
 
@@ -291,6 +314,11 @@ export class GameTableDO extends DurableObject<Env> {
    * hibernation WebSockets across every seat, independent of game phase.
    * A table that's uninitialized reports both as false/true-safe defaults
    * (finished, not connected) so a caller never treats it as live.
+   *
+   * Note this `finished` is broader than getSeatSummary()'s same-named
+   * field: this one also counts "no hand has ever started" as finished,
+   * which is what isLiveMember needs but wrong for lobby listing (see
+   * getSeatSummary()'s doc comment).
    */
   async getLiveness(): Promise<{ finished: boolean; settled: boolean; anyConnected: boolean }> {
     if (!this.loadMetaRow()) return { finished: true, settled: false, anyConnected: false };

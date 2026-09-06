@@ -12,8 +12,18 @@ export function lobbyDoName(gameId: string): string {
 }
 
 const QUICK_PLAY_STAKE = 100;
-const DEAD_TABLE_MS = 60 * 60 * 1000; // 1h: a table nobody but the host ever reserved a seat on
+// Backstop sweep for a dead table that nobody ever lists (e.g. private/
+// invite-only, or a public one that dodges every listOpenParties call in
+// between). listOpenParties is the primary cleanup path now and catches an
+// abandoned public table within its own 2-minute grace (see
+// INACTIVE_LISTING_GRACE_MS), so this threshold only needs to be short
+// enough to bound the backstop's own worst case, not carry the main load.
+const DEAD_TABLE_MS = 10 * 60 * 1000;
 const CLEANUP_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+// Grace for a just-created table whose host's WebSocket hasn't attached yet
+// — a lobby -> table-page navigation takes seconds, but this stays generous
+// for a slow device/connection.
+const INACTIVE_LISTING_GRACE_MS = 2 * 60 * 1000;
 const INVITE_CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const INVITE_CODE_LENGTH = 6;
 const MAX_INVITE_CODE_ATTEMPTS = 20;
@@ -260,7 +270,14 @@ export class LobbyDO extends DurableObject<Env> {
 
     const parties: OpenPartyRow[] = [];
     for (const row of rows) {
+      // One RPC per listed table: getSeatSummary() now carries both the
+      // seat-reconciliation data and the liveness fields needed to classify
+      // the table below, so no second call is needed here.
       const summary = await this.env.GAME_TABLE_DO.getByName(row.tableId).getSeatSummary();
+      if (this.isInactive(row, summary)) {
+        this.clearTable(row.tableId);
+        continue;
+      }
       const seatsFilled = Math.max(row.seatsReserved, summary?.seatsFilled ?? 0);
       if (seatsFilled >= row.seatsTotal) continue;
       parties.push({
@@ -273,6 +290,32 @@ export class LobbyDO extends DurableObject<Env> {
       });
     }
     return parties;
+  }
+
+  /**
+   * A table is inactive — dropped from the listing and its lobby rows
+   * cleared in the same pass — once either:
+   *  - its hand has actually concluded (summary.finished: settled, aborted,
+   *    or reached the engine's finished phase). Dropped immediately,
+   *    regardless of age or connection: this is the backstop for a
+   *    settle/abort -> notifyLobbyTableCleared call that raced or failed to
+   *    reach this LobbyDO (see GameTableDO's notifyLobbyTableCleared).
+   *  - nobody is currently connected AND the table has outlived
+   *    INACTIVE_LISTING_GRACE_MS. This is what actually catches the
+   *    production symptom: a host who created a table and vanished before
+   *    ever opening its socket. A table with any socket attached always
+   *    survives this branch regardless of age.
+   * A missing summary (GameTableDO was never actually initialized) counts
+   * as inactive too — there's nothing real behind that table row.
+   */
+  private isInactive(
+    row: TableRow,
+    summary: { finished: boolean; anyConnected: boolean } | null,
+  ): boolean {
+    if (!summary) return true;
+    if (summary.finished) return true;
+    if (summary.anyConnected) return false;
+    return Date.now() - row.createdAt > INACTIVE_LISTING_GRACE_MS;
   }
 
   async joinParty(tableId: string, userId: string): Promise<JoinResult> {
