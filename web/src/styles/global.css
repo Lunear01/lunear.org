@@ -792,6 +792,8 @@ a {
   font-weight: 700;
   color: var(--color-ink);
   position: relative;
+  /* Explicit level so --selected can drop BELOW every unselected card. */
+  z-index: 1;
   transition:
     transform 0.12s ease,
     box-shadow 0.12s ease;
@@ -832,21 +834,11 @@ a {
 }
 
 .playing-card--selected {
-  /* Raise only via transform — no z-index. `.playing-card` cards are
-     unpositioned-for-stacking siblings (position: relative but z-index:
-     auto), so paint order among them already follows DOM order: each card
-     covers the RIGHT ~55% of its predecessor, leaving every card's own
-     corner index (pinned in its left ~45% sliver) visible. `transform` on
-     its own creates a stacking context, but with no explicit z-index that
-     context still sorts among its auto/0-level siblings by DOM order — so
-     a selected card stays exactly where it was in the stack (still
-     underneath the card to its right) instead of jumping in front of it
-     and covering that neighbor's index/hit-area. An explicit z-index here
-     was the bug: it lifted the selected card above its right-hand
-     neighbor, hiding that neighbor's corner index and swallowing taps
-     meant for it. The raise + gold ring alone make selection obvious
-     without disturbing stacking.
-  */
+  /* Selected cards pop up from BEHIND the fan: z-index 0 puts them under
+     every unselected card (z-index 1), so a raised card can never cover a
+     neighbor's corner index or steal its taps. Its own raised top edge
+     stays fully visible above the fan for deselection. */
+  z-index: 0;
   transform: translateY(-14px);
   box-shadow:
     0 4px 10px rgba(0, 0, 0, 0.45),
