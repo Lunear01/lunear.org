@@ -179,6 +179,21 @@ export class GameTableDO extends DurableObject<Env> {
         aborted_username TEXT
       )
     `);
+    // CREATE TABLE IF NOT EXISTS never alters an existing table, so DOs
+    // created before the abort columns existed need them added here.
+    const gameStateCols = new Set(
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM pragma_table_info('game_state')`)
+        .toArray()
+        .map((r) => r.name as string),
+    );
+    if (!gameStateCols.has("aborted")) {
+      this.ctx.storage.sql.exec(
+        `ALTER TABLE game_state ADD COLUMN aborted INTEGER NOT NULL DEFAULT 0`,
+      );
+      this.ctx.storage.sql.exec(`ALTER TABLE game_state ADD COLUMN aborted_seat INTEGER`);
+      this.ctx.storage.sql.exec(`ALTER TABLE game_state ADD COLUMN aborted_username TEXT`);
+    }
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS test_override (
         id INTEGER PRIMARY KEY CHECK (id = 1),
