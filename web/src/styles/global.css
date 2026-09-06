@@ -762,37 +762,13 @@ a {
   padding: 0.15rem 0;
 }
 
-.table-cardrow--tiny {
-  gap: 0;
-}
-
-.table-history {
-  list-style: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.75rem;
-  color: var(--color-muted);
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.table-history li {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.table-history__seat {
-  white-space: nowrap;
-}
-
 .table-hand {
   display: flex;
   justify-content: safe center;
-  padding: 0.5rem 0;
+  /* Top padding must clear the selected-card raise (translateY(-14px)) plus
+     its box-shadow's upward blur bleed, or overflow-y: hidden here would
+     clip the very effect that makes a selection visible. */
+  padding: 1.25rem 0.5rem 0.5rem;
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
@@ -856,11 +832,25 @@ a {
 }
 
 .playing-card--selected {
+  /* Raise only via transform — no z-index. `.playing-card` cards are
+     unpositioned-for-stacking siblings (position: relative but z-index:
+     auto), so paint order among them already follows DOM order: each card
+     covers the RIGHT ~55% of its predecessor, leaving every card's own
+     corner index (pinned in its left ~45% sliver) visible. `transform` on
+     its own creates a stacking context, but with no explicit z-index that
+     context still sorts among its auto/0-level siblings by DOM order — so
+     a selected card stays exactly where it was in the stack (still
+     underneath the card to its right) instead of jumping in front of it
+     and covering that neighbor's index/hit-area. An explicit z-index here
+     was the bug: it lifted the selected card above its right-hand
+     neighbor, hiding that neighbor's corner index and swallowing taps
+     meant for it. The raise + gold ring alone make selection obvious
+     without disturbing stacking.
+  */
   transform: translateY(-14px);
   box-shadow:
     0 4px 10px rgba(0, 0, 0, 0.45),
     inset 0 0 0 2px var(--color-gold);
-  z-index: 1;
 }
 
 .playing-card:disabled {
@@ -974,9 +964,114 @@ a {
   gap: 0.35rem;
 }
 
+/* The former background winner banner (rendered in CenterArea, dimly visible
+   through the overlay's translucent backdrop) now lives here instead, as
+   the settled panel's headline. */
+.settled-card__winner {
+  font-size: 1.3rem;
+}
+
+.settled-card__winner--gold {
+  color: var(--color-gold-light);
+}
+
 .settled-card .button {
   width: 100%;
   margin-top: 0.5rem;
+}
+
+.settled-card__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.settled-card__actions .button {
+  width: auto;
+  flex: 1;
+  margin-top: 0;
+}
+
+/* ---------- game table: mobile legibility (below the 720px desktop
+   breakpoint) ----------
+   The base card-size tokens (:root, top of file) were tuned to make a full
+   20-card hand FIT one row at 375px, which meant tiny (34px-floor) cards.
+   Below, the hand is allowed to scroll horizontally instead (deliberately,
+   with an edge fade as a scroll affordance — see .table-hand), so cards can
+   be sized for legibility instead of forced fit. Corner index / suit-pip
+   font sizes aren't touched directly — they're already `calc()`d off
+   --card-w / --card-w-sm, so raising those tokens enlarges them too.
+   Desktop (>=720px) is unaffected: the media query simply stops applying,
+   leaving the base :root clamp()s (already near/at these mobile floors by
+   that width) untouched. */
+@media (max-width: 719px) {
+  /* --cardback-sm-w (opponents' face-down hands) is deliberately left
+     alone: it has no text/index to read, and its scale is load-bearing for
+     the "20 card-backs always fit in .table-opponent's 45vw" guarantee
+     (see its :root comment). .table-opponent__cards hard-clips (overflow:
+     hidden) rather than scrolling, so bumping it would silently clip cards
+     on the smallest phones. */
+  :root {
+    --card-w: clamp(50px, 15vw, 64px);
+    --card-w-sm: clamp(34px, 9vw, 46px);
+  }
+
+  .table-hand {
+    /* Make the scroll a deliberate, discoverable interaction rather than a
+       clipped-looking accident: momentum scrolling, and a soft edge fade
+       hinting there's more hand off-screen. */
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(to right, transparent 0, black 16px, black calc(100% - 16px), transparent 100%);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 16px,
+      black calc(100% - 16px),
+      transparent 100%
+    );
+  }
+
+  /* Secondary info text (opponent panels, hints, toasts, badges): bumped
+     from ~12-13.6px to >=14px effective. */
+  .table-opponent,
+  .table-center__hint,
+  .hint-toast,
+  .table-connection-banner {
+    font-size: 0.9rem;
+  }
+
+  .table-toast {
+    font-size: 0.95rem;
+  }
+
+  .ready-badge {
+    font-size: 0.875rem;
+    padding: 0.1rem 0.5rem;
+  }
+
+  .settled-card .modal__hint {
+    font-size: 0.9rem;
+  }
+
+  /* Primary/at-a-glance text (opponent names, whose-turn indicator, action
+     buttons): bumped to >=16px. */
+  .table-opponent__name,
+  .table-center__turn {
+    font-size: 1rem;
+  }
+
+  .table-actions .button,
+  .settled-card__actions .button {
+    font-size: 1rem;
+  }
+
+  .settled-card__winner {
+    font-size: 1.4rem;
+  }
+
+  .table-topbar .button--small {
+    min-height: var(--touch-target);
+    font-size: 0.9rem;
+  }
 }
 
 @media (min-width: 720px) {

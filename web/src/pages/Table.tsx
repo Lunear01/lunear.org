@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 // Runtime import of the pure, dependency-free doudizhu engine — this is the
 // one place web/ pulls game logic (not just types) into the client bundle,
 // so a hint can be computed locally without a server round-trip.
@@ -7,8 +7,12 @@ import { suggestPlay } from "doudizhu";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
 import { sortForHand } from "../ws/cards";
-import type { ClientMessage, ErrorCode, ErrorMessage, PlayRecord, Seat, SeatStatus } from "../ws/types";
+import type { ClientMessage, ErrorCode, ErrorMessage, Seat, SeatStatus } from "../ws/types";
 import { useGameSocket } from "../ws/useGameSocket";
+
+// This table page is doudizhu-specific (see the `suggestPlay` import above),
+// so the lobby it returns to on exit is hardcoded rather than derived.
+const DOUDIZHU_LOBBY_PATH = "/lobby/doudizhu";
 
 const SEATS: readonly Seat[] = [0, 1, 2];
 
@@ -43,6 +47,7 @@ function seatLabel(seats: readonly SeatStatus[] | null, seat: Seat): string {
 
 export default function Table() {
   const { tableId = "" } = useParams<{ tableId: string }>();
+  const navigate = useNavigate();
   const { user, refresh } = useAuth();
   const { status, seats, view, error, settled, send, dismissError } = useGameSocket(tableId);
 
@@ -116,6 +121,17 @@ export default function Table() {
   const mySeatRow = mySeat !== null ? seats?.find((s) => s.seat === mySeat) : undefined;
   const amReady = mySeatRow?.ready ?? false;
   const canReadyUp = seats !== null && seats.length === 3 && (view === null || view.phase === "finished");
+
+  // The settled overlay only ever shows alongside a "finished" view (see the
+  // reducer's round-keyed clearing of `settled`), but guard anyway rather
+  // than assume it during a reconnect race.
+  const finishedView = view?.phase === "finished" ? view : null;
+  const viewerIsLandlord = finishedView !== null && finishedView.viewer === finishedView.landlord;
+  const viewerWonHand = finishedView !== null && (finishedView.winner === "landlord") === viewerIsLandlord;
+
+  // Leaving is just disconnecting — no server call needed. Navigating away
+  // unmounts Table, and useGameSocket's cleanup effect closes the socket.
+  const handleExitToLobby = () => navigate(DOUDIZHU_LOBBY_PATH);
 
   const leftSeat = mySeat !== null ? (((mySeat + 1) % 3) as Seat) : null;
   const rightSeat = mySeat !== null ? (((mySeat + 2) % 3) as Seat) : null;
@@ -234,7 +250,13 @@ export default function Table() {
       {settled && (
         <div className="settled-overlay">
           <div className="settled-card card">
-            <h2 className="modal__title">Hand settled</h2>
+            <h2 className={`modal__title settled-card__winner ${viewerWonHand ? "settled-card__winner--gold" : ""}`}>
+              {finishedView === null
+                ? "Hand settled"
+                : finishedView.winner === "landlord"
+                  ? "Landlord Wins"
+                  : "Peasants Win"}
+            </h2>
             <ul>
               {SEATS.map((seat) => (
                 <li key={seat}>
@@ -245,14 +267,19 @@ export default function Table() {
             {settled.newBalance !== undefined && (
               <p className="modal__hint">Your new balance: {settled.newBalance.toLocaleString()} credits</p>
             )}
-            <button
-              type="button"
-              className="button button--primary"
-              disabled={amReady}
-              onClick={() => sendAction({ type: "ready" })}
-            >
-              {amReady ? "Waiting for others…" : "Ready for next hand"}
-            </button>
+            <div className="settled-card__actions">
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={amReady}
+                onClick={() => sendAction({ type: "ready" })}
+              >
+                {amReady ? "Waiting for others…" : "Ready for next hand"}
+              </button>
+              <button type="button" className="button" onClick={handleExitToLobby}>
+                Exit to lobby
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -291,29 +318,6 @@ function OpponentSeat({
         {row?.ready && !view && <span className="ready-badge">Ready</span>}
       </div>
     </div>
-  );
-}
-
-function HistoryFeed({ history }: { history: readonly PlayRecord[] }) {
-  if (history.length === 0) return null;
-  const recent = history.slice(-5).reverse();
-  return (
-    <ul className="table-history">
-      {recent.map((entry, i) => (
-        <li key={history.length - i}>
-          <span className="table-history__seat">Seat {entry.seat}</span>
-          {entry.combo ? (
-            <span className="table-cardrow table-cardrow--tiny">
-              {entry.combo.cards.map((c) => (
-                <PlayingCard key={c.id} card={c} small />
-              ))}
-            </span>
-          ) : (
-            <span>passed</span>
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -366,14 +370,11 @@ function CenterArea({
           </div>
           <div>
             {view.lastPlay ? (
-              <>
-                <p className="table-center__hint">{seatLabel(seats, view.lastPlay.seat)} played</p>
-                <div className="table-cardrow">
-                  {view.lastPlay.combo.cards.map((c) => (
-                    <PlayingCard key={c.id} card={c} small />
-                  ))}
-                </div>
-              </>
+              <div className="table-cardrow">
+                {view.lastPlay.combo.cards.map((c) => (
+                  <PlayingCard key={c.id} card={c} small />
+                ))}
+              </div>
             ) : (
               <p className="table-center__hint">Free lead — play anything</p>
             )}
@@ -381,13 +382,11 @@ function CenterArea({
           <p className="table-center__turn">
             {view.currentTurn === view.viewer ? "Your turn" : `Waiting on ${seatLabel(seats, view.currentTurn)}`}
           </p>
-          <HistoryFeed history={view.history} />
         </div>
       );
     case "finished":
       return (
         <div>
-          <p>{view.winner === "landlord" ? "Landlord wins!" : "Farmers win!"}</p>
           {view.isSpring && <p className="table-center__hint">Spring — the landlord swept the farmers.</p>}
           {view.isAntiSpring && (
             <p className="table-center__hint">Anti-spring — the farmers shut out the landlord.</p>
