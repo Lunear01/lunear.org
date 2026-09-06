@@ -28,7 +28,7 @@ export function Header() {
           </span>
           {user.is_admin && (
             <Link to="/admin" className="button button--ghost">
-              Admin
+              Admin Panel
             </Link>
           )}
           <button
