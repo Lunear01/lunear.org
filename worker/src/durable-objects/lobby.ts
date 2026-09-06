@@ -329,14 +329,48 @@ export class LobbyDO extends DurableObject<Env> {
 
   // --- Membership / live-check ---------------------------------------------------
 
+  /** Raw membership record check — true whenever a row exists, regardless of table liveness. */
   async isMember(userId: string): Promise<boolean> {
     return (
       this.ctx.storage.sql.exec("SELECT 1 FROM membership WHERE user_id = ?", userId).toArray().length > 0
     );
   }
 
+  /**
+   * Used by isUserInLiveGame (the admin delete-user guard). A membership row
+   * alone is not enough: a game abandoned mid-play (every tab closed, hand
+   * never settled) leaves that row forever, since it's normally only cleared
+   * by notifySettled or the dead-table sweep — neither of which fires for an
+   * abandoned-but-never-finished table. So this asks the table itself:
+   * "live" requires BOTH an unfinished hand AND at least one attached socket
+   * right now. A user who is merely matched/seated but has no hand in
+   * progress and nobody connected is not live either (deleting them is safe
+   * — admin intent wins over a reconnect that may never come). A user who's
+   * actively connected mid-hand still reports live and blocks deletion.
+   *
+   * Whenever the table turns out not-live, this self-heals: the table's
+   * membership/tables/invite_codes rows are cleared here so the next check
+   * for anyone else on that table is a plain membership miss, not another
+   * cross-DO RPC.
+   */
+  async isLiveMember(userId: string): Promise<boolean> {
+    const row = this.ctx.storage.sql
+      .exec<{ tableId: string }>("SELECT table_id as tableId FROM membership WHERE user_id = ?", userId)
+      .toArray()[0];
+    if (!row) return false;
+
+    const liveness = await this.env.GAME_TABLE_DO.getByName(row.tableId).getLiveness();
+    const live = !liveness.finished && liveness.anyConnected;
+    if (!live) this.clearTable(row.tableId);
+    return live;
+  }
+
   /** Called by GameTableDO once a hand settles — clears this table out of the lobby entirely. */
   async notifySettled(tableId: string): Promise<void> {
+    this.clearTable(tableId);
+  }
+
+  private clearTable(tableId: string): void {
     this.ctx.storage.sql.exec("DELETE FROM membership WHERE table_id = ?", tableId);
     this.ctx.storage.sql.exec("DELETE FROM tables WHERE table_id = ?", tableId);
     this.ctx.storage.sql.exec("DELETE FROM invite_codes WHERE table_id = ?", tableId);

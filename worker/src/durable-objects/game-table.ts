@@ -6,7 +6,6 @@ import {
   createGame,
   settle,
   shuffleDeck,
-  sortHand,
   viewFor,
   type Action,
   type Card,
@@ -19,9 +18,8 @@ import { lobbyDoName } from "./lobby";
 
 // One DO per table (named by table id via env.GAME_TABLE_DO.getByName(tableId)).
 // Owns: seating, ready-up, driving the doudizhu engine, redacted broadcasts,
-// turn timers, and exactly-once settlement to D1's credit ledger.
-
-const TURN_TIMEOUT_MS = 30_000;
+// and exactly-once settlement to D1's credit ledger. No per-turn countdown —
+// removed; a turn simply waits for the acting seat's input indefinitely.
 
 export interface TableInitParams {
   readonly tableId: string;
@@ -79,7 +77,6 @@ interface GameStateRow {
   [key: string]: SqlStorageValue;
   stateJson: string | null;
   settled: 0 | 1;
-  turnDeadline: number | null;
 }
 
 interface TestOverrideRow {
@@ -144,8 +141,7 @@ export class GameTableDO extends DurableObject<Env> {
       CREATE TABLE IF NOT EXISTS game_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         state_json TEXT,
-        settled INTEGER NOT NULL DEFAULT 0,
-        turn_deadline INTEGER
+        settled INTEGER NOT NULL DEFAULT 0
       )
     `);
     this.ctx.storage.sql.exec(`
@@ -187,7 +183,7 @@ export class GameTableDO extends DurableObject<Env> {
       new Date().toISOString(),
     );
     this.ctx.storage.sql.exec(
-      "INSERT INTO game_state (id, state_json, settled, turn_deadline) VALUES (1, NULL, 0, NULL)",
+      "INSERT INTO game_state (id, state_json, settled) VALUES (1, NULL, 0)",
     );
 
     return { ok: true };
@@ -221,6 +217,30 @@ export class GameTableDO extends DurableObject<Env> {
       seatsFilled: this.loadSeats().length,
       seatsTotal: SEATS.length,
       settled: this.loadGameStateRow().settled === 1,
+    };
+  }
+
+  /**
+   * Used by LobbyDO to tell an abandoned table (everyone closed their tab
+   * before the hand finished) apart from one that's genuinely still being
+   * played, so the admin delete-user guard (isUserInLiveGame) doesn't block
+   * on stale membership forever. `finished` covers a hand that reached the
+   * engine's 'finished' phase, one already marked settled, or a table that
+   * never had a hand start at all (state_json still NULL) — none of those
+   * should count as "in progress". `anyConnected` reflects currently-attached
+   * hibernation WebSockets across every seat, independent of game phase.
+   * A table that's uninitialized reports both as false/true-safe defaults
+   * (finished, not connected) so a caller never treats it as live.
+   */
+  async getLiveness(): Promise<{ finished: boolean; settled: boolean; anyConnected: boolean }> {
+    if (!this.loadMetaRow()) return { finished: true, settled: false, anyConnected: false };
+    const row = this.loadGameStateRow();
+    const state = row.stateJson ? (JSON.parse(row.stateJson) as GameState) : null;
+    const finished = row.settled === 1 || state === null || state.phase === "finished";
+    return {
+      finished,
+      settled: row.settled === 1,
+      anyConnected: this.ctx.getWebSockets().length > 0,
     };
   }
 
@@ -347,38 +367,6 @@ export class GameTableDO extends DurableObject<Env> {
     this.broadcastState();
   }
 
-  async alarm(): Promise<void> {
-    try {
-      const state = this.loadGameState();
-      if (!state || (state.phase !== "bidding" && state.phase !== "playing")) return;
-
-      let seat: Seat;
-      let action: Action;
-      if (state.phase === "bidding") {
-        seat = state.currentBidder;
-        action = { type: "pass" };
-      } else {
-        seat = state.currentTurn;
-        if (state.lastPlay === null) {
-          const hand = sortHand(state.hands[seat]);
-          const lowest = hand[0];
-          action = lowest ? { type: "play", cardIds: [lowest.id] } : { type: "pass" };
-        } else {
-          action = { type: "pass" };
-        }
-      }
-
-      const result = applyAction(state, seat, action);
-      if (!result.ok) {
-        console.error(`GameTableDO auto-action rejected: ${result.reason}`);
-        return;
-      }
-      await this.applyNewState(result.state);
-    } catch (err) {
-      console.error("GameTableDO alarm handler failed", err);
-    }
-  }
-
   // --- Game flow --------------------------------------------------------------
 
   private async handleReady(seat: Seat): Promise<void> {
@@ -404,14 +392,11 @@ export class GameTableDO extends DurableObject<Env> {
     this.persistGameState(state);
 
     if (state.phase === "finished") {
-      await this.ctx.storage.deleteAlarm();
-      this.ctx.storage.sql.exec("UPDATE game_state SET turn_deadline = NULL WHERE id = 1");
       await this.trySettle();
       this.broadcastState();
       return;
     }
 
-    await this.scheduleTurnDeadline();
     this.broadcastState();
   }
 
@@ -428,7 +413,6 @@ export class GameTableDO extends DurableObject<Env> {
     }
 
     this.persistGameState(state);
-    await this.scheduleTurnDeadline();
     this.broadcastState();
   }
 
@@ -555,7 +539,6 @@ export class GameTableDO extends DurableObject<Env> {
     if (!meta) return;
     const seats = this.loadSeats();
     const gameState = this.loadGameState();
-    const turnDeadline = this.loadGameStateRow().turnDeadline;
 
     const seatStatuses: SeatStatus[] = SEATS.map((seat) => {
       const row = seats.find((s) => s.seat === seat);
@@ -576,7 +559,6 @@ export class GameTableDO extends DurableObject<Env> {
         round: meta.round,
         seats: seatStatuses,
         view: gameState ? viewFor(gameState, seat) : null,
-        turnDeadline,
       };
       const json = JSON.stringify(msg);
       for (const ws of sockets) {
@@ -638,11 +620,9 @@ export class GameTableDO extends DurableObject<Env> {
 
   private loadGameStateRow(): GameStateRow {
     const row = this.ctx.storage.sql
-      .exec<GameStateRow>(
-        "SELECT state_json as stateJson, settled, turn_deadline as turnDeadline FROM game_state WHERE id = 1",
-      )
+      .exec<GameStateRow>("SELECT state_json as stateJson, settled FROM game_state WHERE id = 1")
       .toArray()[0];
-    return row ?? { stateJson: null, settled: 0, turnDeadline: null };
+    return row ?? { stateJson: null, settled: 0 };
   }
 
   private loadGameState(): GameState | null {
@@ -655,12 +635,6 @@ export class GameTableDO extends DurableObject<Env> {
       "UPDATE game_state SET state_json = ?, settled = 0 WHERE id = 1",
       state ? JSON.stringify(state) : null,
     );
-  }
-
-  private async scheduleTurnDeadline(): Promise<void> {
-    const deadline = Date.now() + TURN_TIMEOUT_MS;
-    this.ctx.storage.sql.exec("UPDATE game_state SET turn_deadline = ? WHERE id = 1", deadline);
-    await this.ctx.storage.setAlarm(deadline);
   }
 
   private drawDeckAndFirstBidder(): { deck: Card[]; firstBidder: Seat } {

@@ -153,6 +153,45 @@ function buildFinishedState(deck: Card[]): GameState {
   return state;
 }
 
+/** Directly seats 3 users with an in-progress (unfinished, unsettled) hand on `tableId`, bypassing WS play. */
+async function seatWithUnfinishedHand(
+  tableId: string,
+  users: readonly [{ id: string; username: string }, { id: string; username: string }, { id: string; username: string }],
+): Promise<void> {
+  const stub = env.GAME_TABLE_DO.getByName(tableId);
+  const state = createGame({ shuffledDeck: buildScriptedDeck(), firstBidder: 0, baseStake: STAKE });
+  await runInDurableObject(stub, async (_instance, doState) => {
+    for (let seat = 0; seat < 3; seat++) {
+      doState.storage.sql.exec(
+        "INSERT INTO seats (seat, user_id, username, ready) VALUES (?, ?, ?, 1)",
+        seat,
+        users[seat].id,
+        users[seat].username,
+      );
+    }
+    doState.storage.sql.exec(
+      "UPDATE game_state SET state_json = ?, settled = 0 WHERE id = 1",
+      JSON.stringify(state),
+    );
+  });
+}
+
+/**
+ * Polls `check` until it resolves true or `timeoutMs` elapses. Used only to
+ * observe the Durable Object side finishing its own asynchronous close
+ * handling after a client-side `ws.close()` — there's no other socket left
+ * on an all-tabs-closed table to synchronize on via a broadcast frame, so a
+ * bounded poll (not a blind fixed sleep) is the deterministic option here.
+ */
+async function waitUntil(check: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await check()) return;
+    if (Date.now() >= deadline) throw new Error("timed out waiting for condition");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** Directly seats 3 users and force-finishes+settles a hand on `tableId`, bypassing WS play. */
 async function seatAndSettle(
   tableId: string,
@@ -348,7 +387,28 @@ describe("public directory", () => {
 });
 
 describe("isUserInLiveGame + admin delete-user integration", () => {
-  it("blocks deleting a matched user, then allows it once their hand settles", async () => {
+  it("does not block deleting a matched user nobody ever connected to (never-started table)", async () => {
+    const admin = await loginAsAdmin();
+    const [p1, p2, p3] = await Promise.all([
+      registerUser("nolive1"),
+      registerUser("nolive2"),
+      registerUser("nolive3"),
+    ]);
+
+    await quickPlay(GAME_ID, p1.cookie);
+    await quickPlay(GAME_ID, p2.cookie);
+    await quickPlay(GAME_ID, p3.cookie);
+
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
+    // Raw membership was recorded by the match...
+    expect(await lobbyStub.isMember(p2.id)).toBe(true);
+    // ...but nobody ever opened a socket, so the table isn't "live" — a hand
+    // that never started can't be disrupted by deleting one of its members.
+    const res = await deleteUser(admin.cookie, p2.id);
+    expect(res.status).toBe(200);
+  });
+
+  it("blocks deleting a user connected mid-hand, then allows it once every socket disconnects — and self-heals the stale lobby rows", async () => {
     const admin = await loginAsAdmin();
     const [p1, p2, p3] = await Promise.all([
       registerUser("live1"),
@@ -361,11 +421,92 @@ describe("isUserInLiveGame + admin delete-user integration", () => {
     const matchRes = await quickPlay(GAME_ID, p3.cookie);
     const { tableId } = await matchRes.json<{ tableId: string }>();
 
+    await seatWithUnfinishedHand(tableId, [
+      { id: p1.id, username: p1.username },
+      { id: p2.id, username: p2.username },
+      { id: p3.id, username: p3.username },
+    ]);
+    const sockets = await Promise.all(
+      [p1.cookie, p2.cookie, p3.cookie].map((cookie) => openTableSocket(tableId, cookie)),
+    );
+
     const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
     expect(await lobbyStub.isMember(p2.id)).toBe(true);
 
     const blockedRes = await deleteUser(admin.cookie, p2.id);
     expect(blockedRes.status).toBe(409);
+
+    // Every tab closes — nobody ever finishes or settles the hand. This is
+    // the abandoned-table scenario the fix targets: the old membership-only
+    // check would have blocked deletion forever.
+    for (const ws of sockets) ws.close();
+    const tableStub = env.GAME_TABLE_DO.getByName(tableId);
+    await waitUntil(async () => (await tableStub.getLiveness()).anyConnected === false);
+
+    const allowedRes = await deleteUser(admin.cookie, p2.id);
+    expect(allowedRes.status).toBe(200);
+
+    // Self-heal: the abandoned table's lobby bookkeeping is actually cleared
+    // (not just bypassed) — checked directly against LobbyDO's own storage
+    // rather than only through isMember, so a stale `tables`/`invite_codes`
+    // row wouldn't be missed.
+    expect(await lobbyStub.isMember(p1.id)).toBe(false);
+    expect(await lobbyStub.isMember(p3.id)).toBe(false);
+    await runInDurableObject(lobbyStub, async (_instance, doState) => {
+      expect(doState.storage.sql.exec("SELECT 1 FROM membership WHERE table_id = ?", tableId).toArray()).toHaveLength(0);
+      expect(doState.storage.sql.exec("SELECT 1 FROM tables WHERE table_id = ?", tableId).toArray()).toHaveLength(0);
+      expect(doState.storage.sql.exec("SELECT 1 FROM invite_codes WHERE table_id = ?", tableId).toArray()).toHaveLength(0);
+    });
+  });
+
+  it("still blocks deleting a user who stays connected while their opponents' tabs close (not abandoned for them)", async () => {
+    const admin = await loginAsAdmin();
+    const [p1, p2, p3] = await Promise.all([
+      registerUser("stay1"),
+      registerUser("stay2"),
+      registerUser("stay3"),
+    ]);
+
+    await quickPlay(GAME_ID, p1.cookie);
+    await quickPlay(GAME_ID, p2.cookie);
+    const matchRes = await quickPlay(GAME_ID, p3.cookie);
+    const { tableId } = await matchRes.json<{ tableId: string }>();
+
+    await seatWithUnfinishedHand(tableId, [
+      { id: p1.id, username: p1.username },
+      { id: p2.id, username: p2.username },
+      { id: p3.id, username: p3.username },
+    ]);
+
+    const s1 = await openTableSocket(tableId, p1.cookie);
+    const s2 = await openTableSocket(tableId, p2.cookie);
+    const s3 = await openTableSocket(tableId, p3.cookie);
+    s1.close();
+    s3.close();
+
+    // p2's own socket never closes, so the table stays live for them
+    // regardless of how quickly the other two disconnects are processed.
+    const res = await deleteUser(admin.cookie, p2.id);
+    expect(res.status).toBe(409);
+
+    s2.close();
+  });
+
+  it("still allows deleting a user once their hand settles normally", async () => {
+    const admin = await loginAsAdmin();
+    const [p1, p2, p3] = await Promise.all([
+      registerUser("settle1"),
+      registerUser("settle2"),
+      registerUser("settle3"),
+    ]);
+
+    await quickPlay(GAME_ID, p1.cookie);
+    await quickPlay(GAME_ID, p2.cookie);
+    const matchRes = await quickPlay(GAME_ID, p3.cookie);
+    const { tableId } = await matchRes.json<{ tableId: string }>();
+
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(GAME_ID));
+    expect(await lobbyStub.isMember(p2.id)).toBe(true);
 
     await seatAndSettle(tableId, [
       { id: p1.id, username: p1.username },

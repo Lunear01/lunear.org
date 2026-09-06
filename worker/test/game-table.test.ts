@@ -1,4 +1,4 @@
-import { SELF, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { SELF, env, runInDurableObject } from "cloudflare:test";
 import {
   RANK,
   applyAction,
@@ -436,62 +436,6 @@ describe("GameTableDO — exactly-once settlement", () => {
 
     const ledgerAfterRetry = await ledgerRowsForRound(tableId, 1);
     expect(ledgerAfterRetry.results).toHaveLength(3);
-  });
-});
-
-describe("GameTableDO — turn timer", () => {
-  it("auto-plays the lowest single on a timed-out free lead, then auto-passes afterward", async () => {
-    const tableId = `t-timer-${crypto.randomUUID().slice(0, 8)}`;
-    const [host, p2, p3] = await Promise.all([
-      registerUser("timerh"),
-      registerUser("timerp2"),
-      registerUser("timerp3"),
-    ]);
-    await initTable(tableId, host.cookie, STAKE);
-    const stub = env.GAME_TABLE_DO.getByName(tableId);
-    const deck = buildScriptedDeck();
-    await stub.setTestFixedDeal({ shuffledDeck: deck, firstBidder: 0 });
-
-    // Connect sequentially — see the comment in playScriptedGameToFinish on
-    // why Promise.all here would race the DO's seat assignment.
-    const sockets: [FrameQueue, FrameQueue, FrameQueue] = [
-      await openTableSocket(tableId, host.cookie),
-      await openTableSocket(tableId, p2.cookie),
-      await openTableSocket(tableId, p3.cookie),
-    ];
-
-    send(sockets[0], { type: "ready" });
-    send(sockets[1], { type: "ready" });
-    send(sockets[2], { type: "ready" });
-    await sockets[0].nextFrameMatching((m) => biddingView(m) !== null);
-
-    send(sockets[0], { type: "bid", amount: 3 });
-    await sockets[0].nextFrameMatching((m) => {
-      const v = playingView(m);
-      return v !== null && v.currentTurn === 0 && v.lastPlay === null;
-    });
-
-    // Landlord's turn times out on a free lead: passing is illegal there, so
-    // the alarm must auto-play their lowest single instead of stalling.
-    expect(await runDurableObjectAlarm(stub)).toBe(true);
-    const afterAutoLead = await sockets[1].nextFrameMatching((m) => playingView(m)?.currentTurn === 1);
-    const autoLeadView = playingView(afterAutoLead)!;
-    expect(autoLeadView.lastPlay?.combo.category).toBe("single");
-    expect(autoLeadView.handCounts[0]).toBe(19); // one card auto-played from the 20-card hand
-
-    // Farmer1's turn times out with a live lastPlay: the alarm must auto-pass.
-    expect(await runDurableObjectAlarm(stub)).toBe(true);
-    await sockets[2].nextFrameMatching((m) => playingView(m)?.currentTurn === 2);
-
-    // Farmer2 also times out; two passes in a row clear the trick and hand
-    // the free lead back to the landlord.
-    expect(await runDurableObjectAlarm(stub)).toBe(true);
-    await sockets[0].nextFrameMatching((m) => {
-      const v = playingView(m);
-      return v !== null && v.currentTurn === 0 && v.lastPlay === null;
-    });
-
-    for (const s of sockets) s.ws.close();
   });
 });
 
