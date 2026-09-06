@@ -184,7 +184,7 @@ export default function Table() {
             <div className="table-bottomcards" aria-label="Bottom cards">
               <span className="table-bottomcards__label">Bottom cards</span>
               <div className="table-bottomcards__row">
-                {view.landlordCards.map((c) => (
+                {sortForHand(view.landlordCards).map((c) => (
                   <PlayingCard key={c.id} card={c} small />
                 ))}
               </div>
@@ -407,7 +407,7 @@ function CenterArea({
           <div>
             {view.lastPlay ? (
               <div className="table-cardrow table-cardrow--lastplay">
-                {view.lastPlay.combo.cards.map((c) => (
+                {sortForHand(view.lastPlay.combo.cards).map((c) => (
                   <PlayingCard key={c.id} card={c} />
                 ))}
               </div>
