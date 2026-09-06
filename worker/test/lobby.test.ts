@@ -53,7 +53,7 @@ async function loginAsAdmin(): Promise<{ cookie: string; id: string }> {
 }
 
 async function openTableSocket(tableId: string, cookie: string): Promise<WebSocket> {
-  const res = await SELF.fetch(`http://example.com/api/tables/${tableId}/ws`, {
+  const res = await SELF.fetch(`http://example.com/api/tables/${GAME_ID}/${tableId}/ws`, {
     headers: { Upgrade: "websocket", cookie },
   });
   expect(res.status).toBe(101);
@@ -288,6 +288,74 @@ describe("quick play", () => {
     const rejoin = await (await quickPlay(GAME_ID, user.cookie)).json<{ status: string }>();
     expect(rejoin.status).toBe("queued");
     await leaveQuickPlay(GAME_ID, user.cookie);
+  });
+});
+
+// Liar's Bar (minSeats/maxSeats 4) is registered in worker/src/registry.ts
+// and now backed by the real LiarsBarTableDO (durable-objects/liarsbar-table.ts)
+// and the real "liarsbar" engine package. These tests exercise the lobby's
+// registry-driven plumbing end to end: route validation, quick-play
+// group-size math (still the point of the group-size assertion below — a
+// 4-seat game must not match at 3, the case doudizhu's hardcoded seat count
+// would have gotten wrong), and that the matched group can actually connect
+// to a live table. Full gameplay (ready-up, play/challenge, settlement,
+// abort, reconnection) is covered separately in test/liarsbar-table.test.ts.
+describe("quick play — liarsbar (registry-driven seat count)", () => {
+  const LIARSBAR_ID = "liarsbar";
+
+  it("is a known game: lobby routes accept it instead of 404ing", async () => {
+    const user = await registerUser("lbknown");
+    expect((await listOpenParties(LIARSBAR_ID, user.cookie)).status).toBe(200);
+  });
+
+  it("matches exactly 4 distinct users (the registry's maxSeats), not 3, and spawns a table all 4 can connect to", async () => {
+    const [p1, p2, p3, p4] = await Promise.all([
+      registerUser("lb1"),
+      registerUser("lb2"),
+      registerUser("lb3"),
+      registerUser("lb4"),
+    ]);
+
+    for (const p of [p1, p2, p3]) {
+      const res = await quickPlay(LIARSBAR_ID, p.cookie);
+      expect(res.status).toBe(200);
+      // A 4-seat game must not match at 3 — this is the case doudizhu's
+      // hardcoded seat count would have gotten wrong.
+      expect((await res.json<{ status: string }>()).status).toBe("queued");
+    }
+
+    const fourthRes = await quickPlay(LIARSBAR_ID, p4.cookie);
+    expect(fourthRes.status).toBe(200);
+    const fourthBody = await fourthRes.json<{ status: string; tableId?: string }>();
+    expect(fourthBody.status).toBe("matched");
+    expect(fourthBody.tableId).toBeTruthy();
+    const tableId = fourthBody.tableId!;
+
+    for (const p of [p1, p2, p3]) {
+      const poll = await (await quickPlay(LIARSBAR_ID, p.cookie)).json<{
+        status: string;
+        tableId?: string;
+      }>();
+      expect(poll).toEqual({ status: "matched", tableId });
+    }
+
+    // The real LiarsBarTableDO now backs this table — prove all 4 matched
+    // seats can actually connect to it, not just that the lobby's own
+    // bookkeeping matched them.
+    const upgrades = await Promise.all(
+      [p1.cookie, p2.cookie, p3.cookie, p4.cookie].map((cookie) =>
+        SELF.fetch(`http://example.com/api/tables/${LIARSBAR_ID}/${tableId}/ws`, {
+          headers: { Upgrade: "websocket", cookie },
+        }),
+      ),
+    );
+    for (const res of upgrades) expect(res.status).toBe(101);
+    for (const res of upgrades) {
+      const ws = res.webSocket;
+      if (!ws) throw new Error("server did not accept the websocket upgrade");
+      ws.accept();
+      ws.close();
+    }
   });
 });
 
