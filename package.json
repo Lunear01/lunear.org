@@ -1,0 +1,22 @@
+{
+  "name": "lunear-games",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "worker",
+    "web",
+    "games/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n worker,web -c blue,green \"npm run dev -w worker\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run typecheck -w worker",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.4.0"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.log
+worker/worker-configuration.d.ts
+.claude/
+action-plans/
