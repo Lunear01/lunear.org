@@ -30,11 +30,25 @@ export function PlayingCard({ card, selected = false, small = false, onClick }: 
       aria-label={isJoker(card) ? (card.rank === 17 ? "Red joker" : "Black joker") : `${rankLabel(card.rank)} of ${suitGlyph(card)}`}
     >
       {isJoker(card) ? (
-        <span className="playing-card__joker">{card.rank === 17 ? "★" : "☆"}</span>
+        <>
+          {/* Corner glyph survives the fan overlap; the big centered one is
+              purely decorative for a fully-exposed card. */}
+          <span className="playing-card__index playing-card__index--joker" aria-hidden="true">
+            {card.rank === 17 ? "★" : "☆"}
+          </span>
+          <span className="playing-card__pip" aria-hidden="true">
+            {card.rank === 17 ? "★" : "☆"}
+          </span>
+        </>
       ) : (
         <>
-          <span className="playing-card__rank">{rankLabel(card.rank)}</span>
-          <span className="playing-card__suit">{suitGlyph(card)}</span>
+          <span className="playing-card__index" aria-hidden="true">
+            <span className="playing-card__rank">{rankLabel(card.rank)}</span>
+            <span className="playing-card__suit">{suitGlyph(card)}</span>
+          </span>
+          <span className="playing-card__pip" aria-hidden="true">
+            {suitGlyph(card)}
+          </span>
         </>
       )}
     </button>

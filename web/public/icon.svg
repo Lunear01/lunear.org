@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0b3d24" />
+  <rect width="512" height="512" rx="96" fill="#13294b" />
   <g transform="translate(256 256) rotate(-12) translate(-256 -256)">
     <rect x="146" y="106" width="150" height="210" rx="16" fill="#f7f3ea" stroke="#d9a441" stroke-width="8" />
-    <text x="221" y="230" font-family="Georgia, 'Times New Roman', serif" font-size="120" font-weight="700" fill="#0b3d24" text-anchor="middle">A</text>
+    <text x="221" y="230" font-family="Georgia, 'Times New Roman', serif" font-size="120" font-weight="700" fill="#13294b" text-anchor="middle">A</text>
   </g>
   <g transform="translate(256 256) rotate(10) translate(-256 -256)">
     <rect x="216" y="196" width="150" height="210" rx="16" fill="#f7f3ea" stroke="#d9a441" stroke-width="8" />
