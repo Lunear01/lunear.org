@@ -4,8 +4,10 @@ import type { InitResult, TableInitParams } from "./game-table";
 // room. v1 had exactly one game and hardcoded env.GAME_TABLE_DO everywhere
 // (routes/tables.ts, LobbyDO); a third game extends the switch below
 // instead of adding another hardcode. Every binding's DO must expose this
-// exact RPC surface (GameTableDO's real one; LiarsBarTableDO's placeholder
-// mirrors it — see liarsbar-table.ts).
+// exact RPC surface — GameTableDO, LiarsBarTableDO, and PokerTableDO are all
+// real implementations (see poker-table.ts's own file header for how its
+// room semantics deliberately differ from the other two: variable 2-8
+// capacity, drop-in/drop-out between hands, no abort-on-leave).
 export interface TableStub {
   fetch(request: Request): Promise<Response>;
   init(params: TableInitParams): Promise<InitResult>;
@@ -23,6 +25,8 @@ export function getTableStub(env: Env, gameId: string, tableId: string): TableSt
       return env.GAME_TABLE_DO.getByName(tableId);
     case "liarsbar":
       return env.LIARSBAR_TABLE_DO.getByName(tableId);
+    case "poker":
+      return env.POKER_TABLE_DO.getByName(tableId);
     default:
       return undefined;
   }

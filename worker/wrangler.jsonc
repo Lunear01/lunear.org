@@ -20,13 +20,15 @@
     "bindings": [
       { "name": "GAME_TABLE_DO", "class_name": "GameTableDO" },
       { "name": "LOBBY_DO", "class_name": "LobbyDO" },
-      { "name": "LIARSBAR_TABLE_DO", "class_name": "LiarsBarTableDO" }
+      { "name": "LIARSBAR_TABLE_DO", "class_name": "LiarsBarTableDO" },
+      { "name": "POKER_TABLE_DO", "class_name": "PokerTableDO" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["GameTableDO"] },
     { "tag": "v2", "new_sqlite_classes": ["LobbyDO"] },
-    { "tag": "v3", "new_sqlite_classes": ["LiarsBarTableDO"] }
+    { "tag": "v3", "new_sqlite_classes": ["LiarsBarTableDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["PokerTableDO"] }
   ],
   "routes": [
     { "pattern": "lunear.org", "custom_domain": true },
