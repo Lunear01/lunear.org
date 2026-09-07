@@ -359,6 +359,136 @@ describe("quick play — liarsbar (registry-driven seat count)", () => {
   });
 });
 
+// Poker (minSeats 2, maxSeats 8) is registered in worker/src/registry.ts via
+// the real "poker" engine package, backed by the real PokerTableDO
+// (durable-objects/poker-table.ts). Its minSeats !== maxSeats, so
+// LobbyDO.quickPlay routes it through quickPlayVariableSeat's join-or-create
+// path instead of the fixed-N queue doudizhu/liarsbar use — these tests
+// exercise exactly that path, and confirm it never queues. Full poker
+// gameplay (ready-up, betting, settlement, leave/disconnect handling,
+// drop-in) is covered separately in test/poker-table.test.ts.
+describe("quick play — poker (variable-seat join-or-create)", () => {
+  const POKER_ID = "poker";
+
+  /** Directly overwrites a LobbyDO table row's seats_reserved — simulates a table at capacity without real seating. */
+  async function setSeatsReserved(tableId: string, seatsReserved: number): Promise<void> {
+    const lobbyStub = env.LOBBY_DO.getByName(lobbyDoName(POKER_ID));
+    await runInDurableObject(lobbyStub, async (_instance, doState) => {
+      doState.storage.sql.exec(
+        "UPDATE tables SET seats_reserved = ? WHERE table_id = ?",
+        seatsReserved,
+        tableId,
+      );
+    });
+  }
+
+  it("is a known game: lobby routes accept it instead of 404ing", async () => {
+    const user = await registerUser("pkknown");
+    expect((await listOpenParties(POKER_ID, user.cookie)).status).toBe(200);
+  });
+
+  it("quickPlay with no existing tables creates one and returns matched immediately (never queues)", async () => {
+    const user = await registerUser("pk1");
+    const res = await quickPlay(POKER_ID, user.cookie);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ status: string; tableId?: string }>();
+    expect(body.status).toBe("matched");
+    expect(body.tableId).toBeTruthy();
+  });
+
+  it("a second caller's quickPlay lands in the same table (join-or-create), idempotently on repeat polls", async () => {
+    const [p1, p2] = await Promise.all([registerUser("pk2a"), registerUser("pk2b")]);
+
+    const first = await (await quickPlay(POKER_ID, p1.cookie)).json<{ status: string; tableId?: string }>();
+    expect(first.status).toBe("matched");
+    const tableId = first.tableId!;
+
+    const second = await (await quickPlay(POKER_ID, p2.cookie)).json<{ status: string; tableId?: string }>();
+    expect(second).toEqual({ status: "matched", tableId });
+
+    // Idempotent: re-polling for either user returns the same table, not a
+    // freshly created one — quickPlayVariableSeat's membership check.
+    const p1Again = await (await quickPlay(POKER_ID, p1.cookie)).json<{ status: string; tableId?: string }>();
+    expect(p1Again).toEqual({ status: "matched", tableId });
+    const p2Again = await (await quickPlay(POKER_ID, p2.cookie)).json<{ status: string; tableId?: string }>();
+    expect(p2Again).toEqual({ status: "matched", tableId });
+  });
+
+  it("skips a table already at capacity and creates a new one instead", async () => {
+    const [host, joiner] = await Promise.all([registerUser("pk3host"), registerUser("pk3join")]);
+
+    const created = await (await quickPlay(POKER_ID, host.cookie)).json<{ status: string; tableId?: string }>();
+    const fullTableId = created.tableId!;
+
+    // Simulate the table having reached poker's registry maxSeats (8) —
+    // quickPlayVariableSeat's scan must treat this exactly like
+    // listOpenParties() would (Math.max(seatsReserved, summary.seatsFilled)
+    // >= seatsTotal) and skip straight past it.
+    await setSeatsReserved(fullTableId, 8);
+
+    const secondRes = await (await quickPlay(POKER_ID, joiner.cookie)).json<{
+      status: string;
+      tableId?: string;
+    }>();
+    expect(secondRes.status).toBe("matched");
+    expect(secondRes.tableId).toBeTruthy();
+    expect(secondRes.tableId).not.toBe(fullTableId);
+  });
+
+  it("DELETE quickplay is a no-op success — nothing was ever queued", async () => {
+    const user = await registerUser("pkleave");
+
+    const res = await leaveQuickPlay(POKER_ID, user.cookie);
+    expect(res.status).toBe(200);
+    expect(await res.json<{ ok: boolean }>()).toEqual({ ok: true });
+
+    // No lingering queue state to interact with — a subsequent quickPlay
+    // behaves exactly like a first-ever call (creates a table).
+    const qp = await (await quickPlay(POKER_ID, user.cookie)).json<{ status: string; tableId?: string }>();
+    expect(qp.status).toBe("matched");
+    expect(qp.tableId).toBeTruthy();
+  });
+
+  it("matches two callers into the same table and both can actually connect to it over a real WebSocket", async () => {
+    const [p1, p2] = await Promise.all([registerUser("pkws1"), registerUser("pkws2")]);
+
+    const first = await (await quickPlay(POKER_ID, p1.cookie)).json<{ status: string; tableId?: string }>();
+    expect(first.status).toBe("matched");
+    const tableId = first.tableId!;
+
+    const second = await (await quickPlay(POKER_ID, p2.cookie)).json<{ status: string; tableId?: string }>();
+    expect(second).toEqual({ status: "matched", tableId });
+
+    // The real PokerTableDO now backs this table — prove both matched users
+    // can actually connect to it, not just that the lobby's own bookkeeping
+    // matched them. Connected sequentially (not Promise.all) so the second
+    // connection's own broadcast — read via the RPC below, not a raced WS
+    // frame — is guaranteed to already reflect both seats.
+    const res1 = await SELF.fetch(`http://example.com/api/tables/${POKER_ID}/${tableId}/ws`, {
+      headers: { Upgrade: "websocket", cookie: p1.cookie },
+    });
+    expect(res1.status).toBe(101);
+    const ws1 = res1.webSocket;
+    if (!ws1) throw new Error("server did not accept the websocket upgrade");
+    ws1.accept();
+
+    const res2 = await SELF.fetch(`http://example.com/api/tables/${POKER_ID}/${tableId}/ws`, {
+      headers: { Upgrade: "websocket", cookie: p2.cookie },
+    });
+    expect(res2.status).toBe(101);
+    const ws2 = res2.webSocket;
+    if (!ws2) throw new Error("server did not accept the websocket upgrade");
+    ws2.accept();
+
+    const summary = await env.POKER_TABLE_DO.getByName(tableId).getSeatSummary();
+    expect(summary?.seatsFilled).toBe(2);
+    expect(summary?.seatsTotal).toBe(8);
+
+    ws1.close();
+    ws2.close();
+  });
+});
+
 describe("custom games — invite code", () => {
   it("joins by correct code and 404s on a wrong one", async () => {
     const [host, joiner] = await Promise.all([registerUser("cghost"), registerUser("cgjoin")]);

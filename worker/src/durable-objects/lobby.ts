@@ -169,9 +169,17 @@ export class LobbyDO extends DurableObject<Env> {
    * quickPlay from a different user can't ever observe (and re-match) the
    * same waiting group twice. Earlier joiners discover their tableId by
    * polling quickPlay again (documented for S8b in routes/lobby.ts).
+   *
+   * A game whose minSeats !== maxSeats (e.g. poker, 2-8) has no single fixed
+   * group size to wait for, so it never uses this fixed-N queue at all —
+   * see quickPlayVariableSeat() for that game family's join-or-create path,
+   * which this delegates to up front.
    */
   async quickPlay(gameId: string, userId: string, username: string): Promise<QuickPlayResult> {
     const definition = getGameDefinition(gameId);
+    if (definition && definition.minSeats !== definition.maxSeats) {
+      return this.quickPlayVariableSeat(gameId, userId, username);
+    }
     const seatsTotal = definition?.maxSeats ?? 3;
 
     const existing = this.getQueueRow(userId);
@@ -241,7 +249,82 @@ export class LobbyDO extends DurableObject<Env> {
     return mine ? { status: "matched", tableId } : { status: "queued" };
   }
 
+  /**
+   * Join-or-create quick play for a game with a variable seat count
+   * (minSeats !== maxSeats — e.g. poker, 2-8). There is no fixed group size
+   * to wait for here, so this never queues and always resolves synchronously
+   * to {status:'matched'}:
+   *
+   *  1. A user already seated at one of this game's tables (a `membership`
+   *     row survives until the table is cleared — see clearTable /
+   *     notifySettled) is matched straight back into it, without touching
+   *     seat counts again. This keeps repeated polling idempotent the same
+   *     way the fixed-seat path's `existing.matchedTableId` check does.
+   *  2. Otherwise, scan this game's public tables newest-first for one with
+   *     an open seat, using the exact same not-full / not-inactive test
+   *     listOpenParties() applies (seatSummaryFor + isInactive), and claim a
+   *     seat in the first match via claimSeat() — reusing its race-free
+   *     reservation logic instead of duplicating it. An inactive table found
+   *     along the way is cleared here too, same as listOpenParties() does.
+   *  3. If no public table has room (including the case where every
+   *     candidate loses its seat in a race against claimSeat's own
+   *     recheck), a fresh public table is created — default stake,
+   *     hostUserId the caller, membership recorded — by delegating to
+   *     createGame(), which is exactly "create a public custom game" already.
+   */
+  private async quickPlayVariableSeat(
+    gameId: string,
+    userId: string,
+    username: string,
+  ): Promise<QuickPlayResult> {
+    const existingTableId = this.getMembershipTableId(userId);
+    if (existingTableId && this.getTableRow(existingTableId)) {
+      return { status: "matched", tableId: existingTableId };
+    }
+
+    const candidates = this.ctx.storage.sql
+      .exec<TableRow>(
+        `SELECT table_id as tableId, visibility, host_user_id as hostUserId, host_username as hostUsername,
+                stake, seats_reserved as seatsReserved, seats_total as seatsTotal, created_at as createdAt
+         FROM tables WHERE visibility = 'public' ORDER BY created_at DESC LIMIT ?`,
+        MAX_LISTING,
+      )
+      .toArray();
+
+    for (const row of candidates) {
+      const summary = await this.seatSummaryFor(row.tableId);
+      if (this.isInactive(row, summary)) {
+        this.clearTable(row.tableId);
+        continue;
+      }
+      const seatsFilled = Math.max(row.seatsReserved, summary?.seatsFilled ?? 0);
+      if (seatsFilled >= row.seatsTotal) continue;
+
+      const claimed = await this.claimSeat(row.tableId, userId);
+      if (claimed.ok) return { status: "matched", tableId: claimed.tableId };
+      // Lost a race for the last seat (or the table vanished) — keep scanning.
+    }
+
+    const created = await this.createGame(gameId, {
+      hostUserId: userId,
+      hostUsername: username,
+      stake: QUICK_PLAY_STAKE,
+      inviteOnly: false,
+    });
+    return { status: "matched", tableId: created.tableId };
+  }
+
+  /**
+   * DELETE .../quickplay for a variable-seat game: nothing was ever queued
+   * for this game family (see quickPlayVariableSeat's doc comment), so
+   * this is always a harmless no-op success — there's no quick_queue row to
+   * remove. Kept as an explicit early return (rather than relying on the
+   * DELETE below matching zero rows) so the "no-op for variable-seat games"
+   * contract is visible here, not just an emergent property of an empty table.
+   */
   async leaveQuickPlay(userId: string): Promise<void> {
+    const definition = getGameDefinition(this.currentGameId());
+    if (definition && definition.minSeats !== definition.maxSeats) return;
     this.ctx.storage.sql.exec("DELETE FROM quick_queue WHERE user_id = ?", userId);
   }
 
@@ -489,6 +572,13 @@ export class LobbyDO extends DurableObject<Env> {
         userId,
       )
       .toArray()[0];
+  }
+
+  /** Used by quickPlayVariableSeat's idempotency check — mirrors isLiveMember's membership lookup. */
+  private getMembershipTableId(userId: string): string | undefined {
+    return this.ctx.storage.sql
+      .exec<{ tableId: string }>("SELECT table_id as tableId FROM membership WHERE user_id = ?", userId)
+      .toArray()[0]?.tableId;
   }
 
   private getTableRow(tableId: string): TableRow | undefined {

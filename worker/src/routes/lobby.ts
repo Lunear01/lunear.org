@@ -20,6 +20,11 @@ import { getGameDefinition } from "../registry";
 // {status:"matched", tableId} on their next call. So: poll on an interval
 // while "queued"; stop once "matched". DELETE .../quickplay dequeues (a
 // no-op if not queued, and does not affect a table already matched).
+//
+// A variable-seat game (registry minSeats !== maxSeats, e.g. poker) never
+// returns "queued" at all: POST always resolves synchronously to "matched"
+// (join-or-create — see LobbyDO.quickPlayVariableSeat), so there's nothing
+// to poll for, and DELETE is a pure no-op (nothing was ever enqueued).
 export const lobbyRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 const MAX_STAKE = 10_000;
