@@ -11,9 +11,9 @@ Built for fun, not for money. Don't use it as a gambling site.
 - **Dou Dizhu** (Fight the Landlord) — `games/doudizhu`
 - **Liar's Bar** — `games/liarsbar`
 - **Poker** — `games/poker`
+- **Blackjack** — `games/blackjack`
 
 TODO: 
-- Black Jack
 - Chu Dai D
 - UNO
 - Pescalo
@@ -24,7 +24,8 @@ and reused on its own.
 ### Architecture
 
 - `worker/` — Cloudflare Worker (Hono) serving the API. Each active game table is a Durable
-  Object, one per game type (`GameTableDO`, `LiarsBarTableDO`, `PokerTableDO`), plus a `LobbyDO`
+  Object, one per game type (`GameTableDO`, `LiarsBarTableDO`, `PokerTableDO`,
+  `BlackjackTableDO`), plus a `LobbyDO`
   for matchmaking. A D1 database holds persistent data (accounts, history).
 - `web/` — React + Vite frontend, served as static assets by the same Worker.
 - `games/*` — game logic packages, imported by both `worker` and `web`.
