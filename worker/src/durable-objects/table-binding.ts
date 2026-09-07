@@ -27,6 +27,8 @@ export function getTableStub(env: Env, gameId: string, tableId: string): TableSt
       return env.LIARSBAR_TABLE_DO.getByName(tableId);
     case "poker":
       return env.POKER_TABLE_DO.getByName(tableId);
+    case "blackjack":
+      return env.BLACKJACK_TABLE_DO.getByName(tableId);
     default:
       return undefined;
   }

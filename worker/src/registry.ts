@@ -1,3 +1,4 @@
+import { gameDefinition as blackjack } from "blackjack";
 import { gameDefinition as doudizhu } from "doudizhu";
 import { gameDefinition as liarsbar } from "liarsbar";
 import { gameDefinition as poker } from "poker";
@@ -31,7 +32,7 @@ export interface GameDefinition {
   tableComponent?: unknown;
 }
 
-export const gameRegistry: readonly GameDefinition[] = [doudizhu, liarsbar, poker];
+export const gameRegistry: readonly GameDefinition[] = [doudizhu, liarsbar, poker, blackjack];
 
 export function getGameDefinition(id: string): GameDefinition | undefined {
   return gameRegistry.find((game) => game.id === id);

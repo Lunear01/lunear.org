@@ -10,6 +10,7 @@
     "types": "wrangler types"
   },
   "dependencies": {
+    "blackjack": "*",
     "doudizhu": "*",
     "hono": "^4.6.14",
     "liarsbar": "*",
