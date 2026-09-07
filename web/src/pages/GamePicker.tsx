@@ -1,8 +1,8 @@
 import { Link } from "react-router-dom";
 
-// The web app has no live game registry — these two tiles are hardcoded to
-// match doudizhu and liarsbar, the only games that exist. When a third game
-// lands, revisit whether a registry is worth the abstraction.
+// The web app has no live game registry — these tiles are hardcoded to
+// match doudizhu, liarsbar, and poker, the only games that exist. If a fourth
+// game lands, revisit whether a registry is worth the abstraction.
 export default function GamePicker() {
   return (
     <div className="page">
@@ -28,6 +28,17 @@ export default function GamePicker() {
           <div className="game-tile__body">
             <h2 className="game-tile__name">Liar&rsquo;s Bar</h2>
             <p className="game-tile__meta">4 players &middot; Bluffing</p>
+          </div>
+        </Link>
+        <Link to="/lobby/poker" className="game-tile">
+          <div className="game-tile__art game-tile__art--poker" aria-hidden="true">
+            <span className="game-tile__chip game-tile__chip--cream" />
+            <span className="game-tile__chip game-tile__chip--gold" />
+            <span className="game-tile__chip game-tile__chip--danger" />
+          </div>
+          <div className="game-tile__body">
+            <h2 className="game-tile__name">Poker</h2>
+            <p className="game-tile__meta">2&ndash;8 players</p>
           </div>
         </Link>
       </div>

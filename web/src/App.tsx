@@ -7,12 +7,13 @@ import GamePicker from "./pages/GamePicker";
 import LiarsBarTable from "./pages/LiarsBarTable";
 import Lobby from "./pages/Lobby";
 import Login from "./pages/Login";
+import PokerTable from "./pages/PokerTable";
 import Register from "./pages/Register";
 import Table from "./pages/Table";
 
 // Dispatches /table/:gameId/:tableId to the right game's table screen.
-// doudizhu's Table.tsx is the only one wired to a real game engine so far;
-// liarsbar gets a placeholder until its table screen lands.
+// All three registered games (doudizhu, liarsbar, poker) are wired to real
+// game engines and table screens.
 function TableRoute() {
   const { gameId } = useParams<{ gameId: string }>();
   switch (gameId) {
@@ -20,6 +21,8 @@ function TableRoute() {
       return <Table />;
     case "liarsbar":
       return <LiarsBarTable />;
+    case "poker":
+      return <PokerTable />;
     default:
       return <Navigate to="/" replace />;
   }

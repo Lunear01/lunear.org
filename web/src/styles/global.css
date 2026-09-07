@@ -21,6 +21,11 @@
   --card-h-sm: calc(var(--card-w-sm) * 1.4);
   --cardback-sm-w: clamp(18px, 4vw, 32px);
   --cardback-sm-h: calc(var(--cardback-sm-w) * 1.4);
+  /* Poker's own hole cards render larger than the fanned-hand default (a
+     hold'em hand is always exactly 2 cards, so there's no fan-fit budget to
+     respect) — see .pk-holecard in the poker section below. */
+  --pk-hole-w: clamp(52px, 14vw, 88px);
+  --pk-hole-h: calc(var(--pk-hole-w) * 1.4);
   color-scheme: dark;
 }
 
@@ -363,6 +368,38 @@ a {
   font-size: 1.8rem;
   font-weight: 700;
   color: var(--color-danger);
+}
+
+.game-tile__art--poker {
+  gap: 0;
+}
+
+.game-tile__chip {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: 3px dashed var(--color-cream);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.game-tile__chip--gold {
+  background: var(--color-gold);
+  z-index: 3;
+}
+
+.game-tile__chip--cream {
+  background: var(--color-cream);
+  border-color: var(--color-felt-dark);
+  margin-right: -1.1rem;
+  transform: translateY(-0.3rem);
+  z-index: 2;
+}
+
+.game-tile__chip--danger {
+  background: var(--color-danger);
+  margin-left: -1.1rem;
+  transform: translateY(0.3rem);
+  z-index: 1;
 }
 
 .game-tile__body {
@@ -1326,5 +1363,313 @@ a {
 @media (max-width: 719px) {
   .lb-self-status {
     font-size: 0.9rem;
+  }
+}
+
+/* ---------- poker table (.pk- prefix) ----------
+   Reuses .table-page/-topbar/-connection-banner/-toast/-actions/-center__hint/
+   -center__turn, .status-dot*, .ready-badge, .button*, .field__input,
+   .settled-overlay/-card/-card__winner/-card__actions, .page/.page-loading,
+   .spinner, and .playing-card (via PokerCard) verbatim — only additive,
+   poker-specific pieces live here: the 8-seat ring (fixed absolute seat
+   numbers 0-7 split into two flanking columns, not rotated per-viewer —
+   simpler than doudizhu's/liarsbar's relative-seat ordering, and correct
+   either way since PokerTableDO's SeatStatus is already absolute), seat chip
+   badges, the community-card board + empty slots, showdown reveals, the
+   bet/raise quick-amount control, and the connection-failure panel. */
+
+.pk-felt {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: radial-gradient(ellipse at center, var(--color-felt-light), var(--color-felt-dark));
+  align-items: start;
+}
+
+.pk-seats-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.pk-seat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.5rem;
+  min-width: 0;
+}
+
+.pk-seat--me {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 1px var(--color-gold);
+}
+
+.pk-seat--open {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.pk-seat--folded {
+  opacity: 0.6;
+}
+
+.pk-seat__top {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.pk-seat__name {
+  color: var(--color-cream);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pk-dealer-btn {
+  background: var(--color-gold);
+  color: var(--color-ink);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.pk-seat__badges {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.pk-badge {
+  border-radius: 999px;
+  padding: 0 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pk-badge--fold {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-muted);
+}
+
+.pk-badge--allin {
+  background: var(--color-danger);
+  color: white;
+}
+
+.pk-badge--leaving {
+  background: rgba(217, 83, 79, 0.25);
+  color: #ff8a85;
+}
+
+.pk-seat__chips {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  flex-wrap: wrap;
+}
+
+.pk-seat__total {
+  color: var(--color-gold-light);
+}
+
+.pk-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: center;
+  padding: 0.5rem;
+  min-height: 140px;
+}
+
+.pk-phase {
+  color: var(--color-gold-light);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.pk-board {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: center;
+  flex-wrap: nowrap;
+}
+
+.pk-board .playing-card,
+.pk-board .pk-cardslot {
+  margin-left: 0;
+}
+
+.pk-cardslot {
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: 6px;
+  border: 1px dashed var(--color-border);
+  flex-shrink: 0;
+}
+
+.pk-pot {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-gold-light);
+  margin: 0;
+}
+
+.pk-currentbet {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+.pk-showdown {
+  width: 100%;
+}
+
+.pk-showdown__title {
+  font-weight: 700;
+  color: var(--color-gold-light);
+  margin: 0.3rem 0;
+}
+
+.pk-showdown__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pk-reveal {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+}
+
+.pk-reveal--winner {
+  color: var(--color-gold-light);
+  font-weight: 700;
+}
+
+.pk-reveal__cards {
+  display: flex;
+  gap: 2px;
+}
+
+.pk-reveal__cards .playing-card {
+  margin-left: 0;
+}
+
+.pk-reveal__won {
+  color: #7bd88f;
+  font-weight: 700;
+}
+
+.pk-finished-banner {
+  font-weight: 700;
+  color: var(--color-gold-light);
+  margin: 0;
+}
+
+.pk-self {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+}
+
+.pk-self__cards {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.pk-self__committed {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin: 0;
+}
+
+/* .playing-card sets width/height/margin-left directly (equal specificity to
+   this rule) — source order is what makes this win, same convention already
+   relied on by .playing-card--small elsewhere in this file. */
+.pk-holecard {
+  width: var(--pk-hole-w);
+  height: var(--pk-hole-h);
+  margin-left: 0;
+}
+
+.pk-holecard .playing-card__rank {
+  font-size: calc(4px + var(--pk-hole-w) * 0.17);
+}
+
+.pk-holecard .playing-card__suit {
+  font-size: calc(3px + var(--pk-hole-w) * 0.145);
+}
+
+.pk-holecard .playing-card__pip {
+  font-size: calc(var(--pk-hole-w) * 0.4);
+}
+
+.pk-raise {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 320px;
+}
+
+.pk-raise__quick {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.pk-raise__input {
+  width: 100%;
+  text-align: center;
+}
+
+.pk-panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.pk-panel-actions .button {
+  flex: 1;
+}
+
+@media (min-width: 720px) {
+  .pk-felt {
+    grid-template-columns: 1fr 2.2fr 1fr;
+    gap: 1rem;
+  }
+
+  .pk-seat {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.7rem;
   }
 }

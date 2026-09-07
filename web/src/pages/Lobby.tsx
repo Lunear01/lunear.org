@@ -13,6 +13,7 @@ import { useAuth } from "../context/AuthContext";
 const GAME_NAMES: Record<string, string> = {
   doudizhu: "Fight the Landlord",
   liarsbar: "Liar's Bar",
+  poker: "Poker",
 };
 
 const OPEN_PARTIES_REFRESH_MS = 5000;
