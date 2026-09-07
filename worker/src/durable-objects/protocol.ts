@@ -56,6 +56,14 @@ export interface SeatStatus {
   readonly username: string | null;
   readonly connected: boolean;
   readonly ready: boolean;
+  /**
+   * This seat's occupant's current D1 `users.credits` balance, cached in the
+   * DO's seat row and refreshed only on connect/reconnect and immediately
+   * after settlement (see GameTableDO's refreshSeatCredits) — NOT re-read on
+   * every ordinary broadcast, so an admin credit adjustment mid-hand won't
+   * show up here until the next reconnect or settlement. 0 for an empty seat.
+   */
+  readonly credits: number;
 }
 
 export interface StateMessage {

@@ -100,6 +100,8 @@ interface SeatRow {
   userId: string;
   username: string;
   ready: 0 | 1;
+  /** Cached D1 users.credits — see refreshSeatCredits() for when this is refreshed. */
+  credits: number;
 }
 
 interface GameStateRow {
@@ -192,12 +194,25 @@ export class LiarsBarTableDO extends DurableObject<Env> {
         seat INTEGER PRIMARY KEY CHECK (seat IN (0, 1, 2, 3)),
         user_id TEXT NOT NULL,
         username TEXT NOT NULL,
-        ready INTEGER NOT NULL DEFAULT 0
+        ready INTEGER NOT NULL DEFAULT 0,
+        credits INTEGER NOT NULL DEFAULT 0
       )
     `);
+    // CREATE TABLE IF NOT EXISTS never alters an existing table — any DO
+    // created before the credits column existed needs it added here (mirrors
+    // GameTableDO's identical backfill for its own added-later columns).
+    const seatCols = new Set(
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM pragma_table_info('seats')`)
+        .toArray()
+        .map((r) => r.name as string),
+    );
+    if (!seatCols.has("credits")) {
+      this.ctx.storage.sql.exec(`ALTER TABLE seats ADD COLUMN credits INTEGER NOT NULL DEFAULT 0`);
+    }
     // Unlike GameTableDO, this DO has no pre-existing instances that predate
     // the abort columns, so they're just part of the initial schema here —
-    // no ALTER-TABLE backfill dance is needed.
+    // no ALTER-TABLE backfill dance is needed for those.
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS game_state (
         id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -368,6 +383,10 @@ export class LiarsBarTableDO extends DurableObject<Env> {
         username,
       );
     }
+
+    // Refresh this seat's cached credits on every connect/reconnect — the
+    // other refresh point is right after settlement (see broadcastSettled).
+    await this.refreshSeatCredits([userId]);
 
     // Reconnect: any prior socket for this seat gets replaced by this one.
     const priorSockets = this.ctx.getWebSockets(`seat:${seat}`);
@@ -776,13 +795,18 @@ export class LiarsBarTableDO extends DurableObject<Env> {
     seats: readonly SeatRow[],
     deltas: Readonly<Record<Seat, number>>,
   ): Promise<void> {
+    // One batched D1 read for every seated user's post-settlement balance —
+    // also refreshes each seat row's cached `credits` column, which the very
+    // next broadcastState() call (right after this, in trySettle()) reads
+    // from instead of hitting D1 again.
+    await this.refreshSeatCredits(seats.map((s) => s.userId));
+    const freshSeats = this.loadSeats();
+
     for (const seatRow of seats) {
       const sockets = this.ctx.getWebSockets(`seat:${seatRow.seat}`);
       if (sockets.length === 0) continue;
-      const balanceRow = await this.env.DB.prepare("SELECT credits FROM users WHERE id = ?")
-        .bind(seatRow.userId)
-        .first<{ credits: number }>();
-      const msg: SettledMessage = { type: "settled", round, deltas, newBalance: balanceRow?.credits };
+      const newBalance = freshSeats.find((s) => s.seat === seatRow.seat)?.credits;
+      const msg: SettledMessage = { type: "settled", round, deltas, newBalance };
       const json = JSON.stringify(msg);
       for (const ws of sockets) {
         try {
@@ -791,6 +815,26 @@ export class LiarsBarTableDO extends DurableObject<Env> {
           /* socket may have just closed */
         }
       }
+    }
+  }
+
+  /**
+   * Refreshes the cached `credits` column for every given userId's seat row,
+   * in a single `WHERE id IN (...)` D1 query — see GameTableDO's identically
+   * named method for the full rationale (same two call sites, same
+   * deleted-user policy of leaving a missing id's last cached value alone).
+   */
+  private async refreshSeatCredits(userIds: readonly string[]): Promise<void> {
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
+    const { results } = await this.env.DB.prepare(
+      `SELECT id, credits FROM users WHERE id IN (${placeholders})`,
+    )
+      .bind(...ids)
+      .all<{ id: string; credits: number }>();
+    for (const row of results) {
+      this.ctx.storage.sql.exec("UPDATE seats SET credits = ? WHERE user_id = ?", row.credits, row.id);
     }
   }
 
@@ -810,6 +854,7 @@ export class LiarsBarTableDO extends DurableObject<Env> {
         username: row?.username ?? null,
         connected: this.ctx.getWebSockets(`seat:${seat}`).length > 0,
         ready: row?.ready === 1,
+        credits: row?.credits ?? 0,
       };
     });
 
@@ -890,7 +935,7 @@ export class LiarsBarTableDO extends DurableObject<Env> {
 
   private loadSeats(): SeatRow[] {
     return this.ctx.storage.sql
-      .exec<SeatRow>("SELECT seat, user_id as userId, username, ready FROM seats ORDER BY seat")
+      .exec<SeatRow>("SELECT seat, user_id as userId, username, ready, credits FROM seats ORDER BY seat")
       .toArray();
   }
 

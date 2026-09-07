@@ -80,6 +80,14 @@ export interface SeatStatus {
    * ever setting this).
    */
   readonly leavePending: boolean;
+  /**
+   * This seat's occupant's current D1 `users.credits` balance, cached in the
+   * DO's seat row and refreshed only on connect/reconnect and immediately
+   * after settlement (see PokerTableDO's refreshSeatCredits) — NOT re-read on
+   * every ordinary broadcast, so an admin credit adjustment mid-hand won't
+   * show up here until the next reconnect or settlement. 0 for an empty seat.
+   */
+  readonly credits: number;
 }
 
 export interface StateMessage {
@@ -119,6 +127,20 @@ export interface SettledMessage {
   readonly newBalance?: number;
 }
 
+/**
+ * Broadcast once, immediately after 'settled', whenever the table just
+ * finished a hand and at least the possibility of an automatic next hand is
+ * being timed out (see PokerTableDO's file header) — `at` is the epoch-ms
+ * moment the DO's alarm will fire and decide, then, whether to deal
+ * (>=2 connected occupants) or fall back to manual ready-up. A client uses
+ * this only to render a countdown; it carries no guarantee a hand actually
+ * starts at `at` (the connected-seat check happens at fire time, not here).
+ */
+export interface NextHandMessage {
+  readonly type: "nextHand";
+  readonly at: number;
+}
+
 // No 'aborted' message — poker never voids a hand for anyone; see the file
 // header above and PokerTableDO's own doc comment for the full rationale.
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage;
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | NextHandMessage;

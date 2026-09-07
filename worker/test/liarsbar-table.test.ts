@@ -435,6 +435,95 @@ describe("LiarsBarTableDO — full scripted game", () => {
   });
 });
 
+describe("LiarsBarTableDO — seat broadcasts carry live credit balances", () => {
+  it("caches each seat's D1 credits on connect and refreshes them after settlement", async () => {
+    const tableId = `t-credits-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3, p4] = await Promise.all([
+      registerUser("lbcrhost"),
+      registerUser("lbcrp2"),
+      registerUser("lbcrp3"),
+      registerUser("lbcrp4"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.LIARSBAR_TABLE_DO.getByName(tableId);
+    const deck = buildScriptedDeck();
+    await stub.setTestFixedDeal({
+      shuffledDeck: deck,
+      tableRank: TEST_TABLE_RANK,
+      bulletPositions: TEST_BULLETS,
+      firstSeat: TEST_FIRST_SEAT,
+    });
+
+    const users = [host, p2, p3, p4] as const;
+    const before = await Promise.all(
+      users.map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+
+    // Connect sequentially so seat 0/1/2/3 pin to host/p2/p3/p4
+    // deterministically (see playScriptedGameToFinish's identical comment).
+    const sockets: [FrameQueue, FrameQueue, FrameQueue, FrameQueue] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+      await openTableSocket(tableId, p4.cookie),
+    ];
+
+    // Connect-time caching: by the time all 4 are seated, the broadcast
+    // already carries every occupant's real D1 balance, well before any hand
+    // starts — not a stale/zero default.
+    const allSeated = asStateMessage(
+      await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats.every((s) => s.userId !== null) === true),
+    )!;
+    for (let i = 0; i < users.length; i++) {
+      expect(allSeated.seats[i].credits).toBe(before[i]!.credits);
+    }
+
+    await readyUpAndReachPlaying(sockets);
+
+    // Round 1: seat0 leads a real Q; seat1 challenges (truthful) and dies.
+    send(sockets[0], { type: "play", cardIds: ["Q1"] });
+    await sockets[1].nextFrameMatching((m) => playingView(m)?.currentTurn === 1);
+    send(sockets[1], { type: "challenge" });
+    await sockets[0].nextFrameMatching((m) => roundEndView(m) !== null);
+    await sockets[0].nextFrameMatching((m) => playingView(m)?.currentTurn === 2);
+
+    // Round 2: seat2 leads a real Q; seat3 challenges (truthful) and dies.
+    send(sockets[2], { type: "play", cardIds: ["Q6"] });
+    await sockets[3].nextFrameMatching((m) => playingView(m)?.currentTurn === 3);
+    send(sockets[3], { type: "challenge" });
+    await sockets[0].nextFrameMatching((m) => roundEndView(m) !== null);
+    await sockets[0].nextFrameMatching((m) => playingView(m)?.currentTurn === 0);
+
+    // Round 3: seat0 leads a real Q; seat2 challenges (truthful) and dies —
+    // only seat0 remains alive: finished.
+    send(sockets[0], { type: "play", cardIds: ["Q2"] });
+    await sockets[2].nextFrameMatching((m) => playingView(m)?.currentTurn === 2);
+    send(sockets[2], { type: "challenge" });
+    await sockets[0].nextFrameMatching((m) => m.type === "settled");
+
+    const expected = replayScriptedGameForExpectedDeltas(deck);
+    const after = await Promise.all(
+      users.map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+
+    // The 'state' broadcast right after 'settled' reflects every seat's
+    // post-delta D1 balance, refreshed in the same batched query that
+    // produced 'settled'.newBalance.
+    const afterSettle = asStateMessage(await sockets[0].nextFrameMatching((m) => asStateMessage(m) !== null))!;
+    for (let i = 0; i < users.length; i++) {
+      const seat = i as Seat;
+      expect(after[i]!.credits).toBe(before[i]!.credits + expected[seat]);
+      expect(afterSettle.seats[i].credits).toBe(after[i]!.credits);
+    }
+
+    for (const s of sockets) s.ws.close();
+  });
+});
+
 describe("LiarsBarTableDO — reconnection", () => {
   it("re-seats a reconnecting user by userId and lets play continue", async () => {
     const tableId = `t-reconnect-${crypto.randomUUID().slice(0, 8)}`;

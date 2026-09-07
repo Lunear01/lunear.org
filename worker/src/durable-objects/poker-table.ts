@@ -11,6 +11,7 @@ import {
   type Card,
   type GameState,
   type HandOverState,
+  type RedactedView,
   type Seat,
 } from "poker";
 import {
@@ -18,6 +19,7 @@ import {
   type ClientMessage,
   type ErrorCode,
   type ErrorMessage,
+  type NextHandMessage,
   type SeatStatus,
   type SettledMessage,
   type StateMessage,
@@ -47,12 +49,27 @@ export type { InitResult, TableInitParams };
 //    already their turn, or the instant action reaches them otherwise — see
 //    resolveLeavers()) and frees their seat once the hand settles. Every
 //    other seat's hand plays on unaffected.
-//  - Hands repeat indefinitely on the same table: ready-up requires EVERY
-//    currently seated player ready AND at least 2 seated, dealer rotates via
-//    the engine's nextDealerSeat() from the previous hand's dealer (or the
-//    lowest seat, for the table's first-ever hand), and after settlement the
-//    table returns to a ready/waiting phase — seats persist (leavers freed),
-//    exactly as before a hand ever started.
+//  - The table's FIRST-EVER hand still requires EVERY currently seated player
+//    ready AND at least 2 seated (handleReady/startNewHand) — people are
+//    still sitting down for the first time. Every hand AFTER that is dealt
+//    automatically: right after 'settled' is broadcast, a `next_hand_at`
+//    timestamp (~NEXT_HAND_DELAY_MS out) is stored in table_meta and a
+//    'nextHand' message broadcasts it so clients can render a countdown; when
+//    the DO's alarm fires (fireNextHandAlarm), any seat that's occupied but
+//    NOT currently connected is skipped for that hand (dealt out, seat kept)
+//    — if fewer than 2 occupied seats are connected at that moment, the table
+//    falls back to manual ready-up instead (seats' `ready` flags are already
+//    0 from the previous startNewHand, so this is indistinguishable from the
+//    table's first-ever ready phase). Dealer rotates via the engine's
+//    nextDealerSeat() from the previous hand's dealer (or the lowest seat,
+//    for the table's first-ever hand) among only the seats actually dealt
+//    into the new hand. A 'ready' message received while `next_hand_at` is
+//    set is accepted but ignored (see handleReady) — the auto-deal alarm
+//    alone drives the next hand, so a stray manual ready-up during the
+//    countdown can never race it into starting two hands. The `next_hand_at`
+//    alarm and the disconnect-grace alarm below share one DO alarm slot but
+//    never coexist in practice — pending_disconnects is only ever non-empty
+//    mid-hand, next_hand_at only ever set between hands — see rearmAlarm().
 //  - The lobby-facing RPCs (getSeatSummary/getLiveness) intentionally do NOT
 //    report `finished` just because a hand isn't currently running, or even
 //    because nobody has connected YET — see maybeNotifyTableEmptied() and
@@ -67,6 +84,11 @@ export type { InitResult, TableInitParams };
 const MIN_SEATS_TO_START = 2;
 const MAX_SEATS = 8;
 const ALL_SEATS: readonly Seat[] = [0, 1, 2, 3, 4, 5, 6, 7];
+
+// How long after a settled hand's broadcast the table waits before either
+// auto-dealing the next hand or falling back to manual ready-up — see the
+// file header's auto-deal section and fireNextHandAlarm().
+const NEXT_HAND_DELAY_MS = 6_000;
 
 /**
  * TEST-ONLY fixed setup, consumed once by drawHandSetup() in place of a
@@ -112,6 +134,15 @@ interface TableMetaRow {
   handNo: number;
   dealerSeat: number | null;
   everSeated: 0 | 1;
+  /**
+   * Epoch ms the between-hands auto-deal alarm is armed for, or null when no
+   * auto-deal countdown is running (mid-hand, or genuinely waiting on manual
+   * ready-up after a fallback — see fireNextHandAlarm()). Mutually exclusive
+   * with a non-empty `pending_disconnects` table in practice: the two never
+   * coexist because a hand is either active (only pending_disconnects can be
+   * scheduled) or it isn't (only this can be scheduled) — see rearmAlarm().
+   */
+  nextHandAt: number | null;
 }
 
 interface SeatRow {
@@ -121,6 +152,8 @@ interface SeatRow {
   username: string;
   ready: 0 | 1;
   leavePending: 0 | 1;
+  /** Cached D1 users.credits — see refreshSeatCredits() for when this is refreshed. */
+  credits: number;
 }
 
 interface GameStateRow {
@@ -149,6 +182,29 @@ interface TestOverrideRow {
 
 function cryptoRandomSource(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+}
+
+/**
+ * viewFor(state, seat) indexes `state.players[seat]` unconditionally for a
+ * live betting street (preflop/flop/turn/river) to read that seat's own hole
+ * cards — which throws if `seat` isn't one of the hand's dealt-in
+ * `state.seats` (see games/poker/src/game.ts's viewFor). That situation is
+ * now reachable: the auto-deal alarm (see fireNextHandAlarm) can start a hand
+ * skipping a seated-but-disconnected occupant, who stays seated but doesn't
+ * participate in that hand. Decision: such a seat gets `view: null` for the
+ * remainder of any betting street it's not part of — the same "no active
+ * view" shape a client already renders while waiting between hands — rather
+ * than a bespoke spectator view shape. At showdown/finished, viewFor never
+ * indexes `players[viewer]` directly (only iterates `state.seats`), so it's
+ * safe to call for ANY seat number there regardless of participation, and a
+ * skipped seat's client correctly sees that hand's public outcome once it
+ * ends.
+ */
+function viewForSeatOrSpectator(state: GameState | null, seat: Seat): RedactedView | null {
+  if (!state) return null;
+  if (state.phase === "showdown" || state.phase === "finished") return viewFor(state, seat);
+  if (!state.seats.includes(seat)) return null;
+  return viewFor(state, seat);
 }
 
 function buildResultSummary(
@@ -202,9 +258,19 @@ export class PokerTableDO extends DurableObject<Env> {
         hand_no INTEGER NOT NULL DEFAULT 0,
         dealer_seat INTEGER,
         ever_seated INTEGER NOT NULL DEFAULT 0,
+        next_hand_at INTEGER,
         created_at TEXT NOT NULL
       )
     `);
+    const tableMetaCols = new Set(
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM pragma_table_info('table_meta')`)
+        .toArray()
+        .map((r) => r.name as string),
+    );
+    if (!tableMetaCols.has("next_hand_at")) {
+      this.ctx.storage.sql.exec(`ALTER TABLE table_meta ADD COLUMN next_hand_at INTEGER`);
+    }
     // Unlike GameTableDO/LiarsBarTableDO, seat rows here are transient — a
     // seat is deleted (not merely marked disconnected) once its occupant
     // leaves for good, so a freed seat number can be reused by a new
@@ -216,9 +282,19 @@ export class PokerTableDO extends DurableObject<Env> {
         user_id TEXT NOT NULL,
         username TEXT NOT NULL,
         ready INTEGER NOT NULL DEFAULT 0,
-        leave_pending INTEGER NOT NULL DEFAULT 0
+        leave_pending INTEGER NOT NULL DEFAULT 0,
+        credits INTEGER NOT NULL DEFAULT 0
       )
     `);
+    const seatCols = new Set(
+      this.ctx.storage.sql
+        .exec(`SELECT name FROM pragma_table_info('seats')`)
+        .toArray()
+        .map((r) => r.name as string),
+    );
+    if (!seatCols.has("credits")) {
+      this.ctx.storage.sql.exec(`ALTER TABLE seats ADD COLUMN credits INTEGER NOT NULL DEFAULT 0`);
+    }
     // No `aborted` column here — poker has no abort concept at all (see the
     // file header) — and the terminal (showdown/finished) state is kept
     // around after settlement (not nulled out) so forceSettle() can still
@@ -268,8 +344,8 @@ export class PokerTableDO extends DurableObject<Env> {
     }
 
     this.ctx.storage.sql.exec(
-      `INSERT INTO table_meta (id, table_id, game_id, stake, visibility, invite_code, host_user_id, hand_no, dealer_seat, ever_seated, created_at)
-       VALUES (1, ?, ?, ?, ?, ?, ?, 0, NULL, 0, ?)`,
+      `INSERT INTO table_meta (id, table_id, game_id, stake, visibility, invite_code, host_user_id, hand_no, dealer_seat, ever_seated, next_hand_at, created_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?, 0, NULL, 0, NULL, ?)`,
       params.tableId,
       params.gameId,
       params.stake,
@@ -394,6 +470,10 @@ export class PokerTableDO extends DurableObject<Env> {
       this.ctx.storage.sql.exec("UPDATE table_meta SET ever_seated = 1 WHERE id = 1");
     }
 
+    // Refresh this seat's cached credits on every connect/reconnect — the
+    // other refresh point is right after settlement (see broadcastSettled).
+    await this.refreshSeatCredits([userId]);
+
     // Reconnect: any prior socket for this seat gets replaced by this one.
     const priorSockets = this.ctx.getWebSockets(`seat:${seat}`);
 
@@ -511,6 +591,14 @@ export class PokerTableDO extends DurableObject<Env> {
       this.sendErrorToSeat(seat, "game-in-progress", "cannot ready up while a hand is active");
       return;
     }
+    const meta = this.loadMetaRow();
+    if (meta?.nextHandAt != null) {
+      // The auto-deal countdown is running (see the file header) — a manual
+      // ready click here is accepted but ignored: the alarm alone decides
+      // whether/when the next hand starts, so acting on this would risk
+      // racing it into starting two hands at once.
+      return;
+    }
     this.ctx.storage.sql.exec("UPDATE seats SET ready = 1 WHERE seat = ?", seat);
     const seatRows = this.loadSeats();
     if (seatRows.length >= MIN_SEATS_TO_START && seatRows.every((s) => s.ready === 1)) {
@@ -605,17 +693,29 @@ export class PokerTableDO extends DurableObject<Env> {
     return current;
   }
 
-  private async startNewHand(): Promise<void> {
+  /**
+   * `dealtInSeats`, when given, restricts the new hand to exactly those
+   * seats — used by the auto-deal alarm (fireNextHandAlarm) to skip a
+   * seated-but-disconnected occupant for that one hand while keeping their
+   * seat. Omitted (the manual ready-up path, including the table's
+   * first-ever hand) defaults to every currently occupied seat, since only a
+   * CONNECTED seat can ever send 'ready' in the first place.
+   */
+  private async startNewHand(dealtInSeats?: readonly Seat[]): Promise<void> {
     const meta = this.loadMetaRow();
     if (!meta) return;
 
     const seatRows = this.loadSeats();
-    const seats = seatRows.map((s) => s.seat);
+    const seats = dealtInSeats ?? seatRows.map((s) => s.seat);
     const { deck, dealerSeat } = this.drawHandSetup(seats, meta.dealerSeat);
     const state = createGame({ seats, dealerSeat, stake: meta.stake, shuffledDeck: deck });
 
     const handNo = meta.handNo + 1;
-    this.ctx.storage.sql.exec("UPDATE table_meta SET hand_no = ?, dealer_seat = ? WHERE id = 1", handNo, dealerSeat);
+    this.ctx.storage.sql.exec(
+      "UPDATE table_meta SET hand_no = ?, dealer_seat = ?, next_hand_at = NULL WHERE id = 1",
+      handNo,
+      dealerSeat,
+    );
     this.ctx.storage.sql.exec("UPDATE seats SET ready = 0");
 
     // Defensive: a fresh hand never starts holding a leftover grace timer
@@ -637,54 +737,109 @@ export class PokerTableDO extends DurableObject<Env> {
       username,
       deadline,
     );
-    await this.rearmDisconnectAlarm();
+    await this.rearmAlarm();
   }
 
   private async cancelDisconnectGrace(seat: Seat): Promise<void> {
     this.ctx.storage.sql.exec("DELETE FROM pending_disconnects WHERE seat = ?", seat);
-    await this.rearmDisconnectAlarm();
+    await this.rearmAlarm();
   }
 
   /**
-   * Multiple seats can be mid-grace at once; a DO has only one alarm, so
-   * it's always armed for the earliest outstanding deadline. See
-   * GameTableDO's identically-named method for the full rationale.
+   * This DO's single alarm slot is shared by two concerns that never
+   * actually overlap (see the file header): disconnect-grace deadlines
+   * (only ever pending mid-hand) and the between-hands auto-deal countdown
+   * (only ever pending once a hand has settled). Whichever is currently
+   * outstanding wins; if a disconnect deadline is pending it always takes
+   * priority (there can be several of those queued, each needing its own
+   * turn at the alarm — see alarm()'s handling of a still-connected seat),
+   * falling back to the next-hand timestamp, then to no alarm at all.
    */
-  private async rearmDisconnectAlarm(): Promise<void> {
-    const row = this.ctx.storage.sql
+  private async rearmAlarm(): Promise<void> {
+    const disconnectRow = this.ctx.storage.sql
       .exec<{ deadline: number }>("SELECT MIN(deadline) as deadline FROM pending_disconnects")
       .toArray()[0];
-    if (row?.deadline == null) {
-      await this.ctx.storage.deleteAlarm();
-    } else {
-      await this.ctx.storage.setAlarm(row.deadline);
+    if (disconnectRow?.deadline != null) {
+      await this.ctx.storage.setAlarm(disconnectRow.deadline);
+      return;
     }
+    const meta = this.loadMetaRow();
+    if (meta?.nextHandAt != null) {
+      await this.ctx.storage.setAlarm(meta.nextHandAt);
+      return;
+    }
+    await this.ctx.storage.deleteAlarm();
   }
 
   /**
    * In production this only ever runs once the platform's clock reaches the
    * armed deadline. Tests force it early via runDurableObjectAlarm — the
    * `stillConnected` check below is what makes that safe, exactly as in
-   * GameTableDO/LiarsBarTableDO.
+   * GameTableDO/LiarsBarTableDO. Branches on `isHandActive()` because that's
+   * exactly the condition that decides which of this DO's two alarm concerns
+   * is the one currently armed (see the file header and rearmAlarm()).
    */
   async alarm(): Promise<void> {
-    if (!this.isHandActive()) {
-      this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
+    if (this.isHandActive()) {
+      const earliest = this.ctx.storage.sql
+        .exec<PendingDisconnectRow>(
+          "SELECT seat, username, deadline FROM pending_disconnects ORDER BY deadline ASC LIMIT 1",
+        )
+        .toArray()[0];
+      if (!earliest) return;
+
+      this.ctx.storage.sql.exec("DELETE FROM pending_disconnects WHERE seat = ?", earliest.seat);
+      const stillConnected = this.ctx.getWebSockets(`seat:${earliest.seat}`).length > 0;
+      if (!stillConnected) {
+        await this.forceFoldAndMarkLeaving(earliest.seat);
+      }
+      // Rearm regardless: forceFoldAndMarkLeaving may itself settle the hand
+      // (which schedules the next-hand timer) and there may also be another,
+      // later-deadline seat still queued in pending_disconnects either way.
+      await this.rearmAlarm();
       return;
     }
 
-    const earliest = this.ctx.storage.sql
-      .exec<PendingDisconnectRow>("SELECT seat, username, deadline FROM pending_disconnects ORDER BY deadline ASC LIMIT 1")
-      .toArray()[0];
-    if (!earliest) return;
+    // Not mid-hand: any leftover pending_disconnects rows here are stale
+    // (defensive cleanup only — see the file header, this shouldn't normally
+    // happen) and this firing is the between-hands auto-deal countdown.
+    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
+    await this.fireNextHandAlarm();
+  }
 
-    this.ctx.storage.sql.exec("DELETE FROM pending_disconnects WHERE seat = ?", earliest.seat);
-    const stillConnected = this.ctx.getWebSockets(`seat:${earliest.seat}`).length > 0;
-    if (stillConnected) {
-      await this.rearmDisconnectAlarm();
-      return;
+  /**
+   * Fires once the between-hands countdown (see trySettle()'s scheduling)
+   * elapses: deals a fresh hand automatically if at least MIN_SEATS_TO_START
+   * occupied seats are currently connected — skipping (not freeing) any
+   * occupied-but-disconnected seat for just this hand, per the file header —
+   * or, if fewer than that are connected, falls back to manual ready-up
+   * (seats' `ready` flags are already 0 from the last startNewHand, so this
+   * looks exactly like the table's first-ever ready phase).
+   */
+  private async fireNextHandAlarm(): Promise<void> {
+    this.ctx.storage.sql.exec("UPDATE table_meta SET next_hand_at = NULL WHERE id = 1");
+
+    const seatRows = this.loadSeats();
+    const connected = seatRows.filter((s) => this.ctx.getWebSockets(`seat:${s.seat}`).length > 0);
+    if (connected.length >= MIN_SEATS_TO_START) {
+      await this.startNewHand(connected.map((s) => s.seat));
+    } else {
+      this.broadcastState();
     }
-    await this.forceFoldAndMarkLeaving(earliest.seat);
+  }
+
+  private broadcastNextHand(at: number): void {
+    const msg: NextHandMessage = { type: "nextHand", at };
+    const json = JSON.stringify(msg);
+    for (const seat of ALL_SEATS) {
+      for (const ws of this.ctx.getWebSockets(`seat:${seat}`)) {
+        try {
+          ws.send(json);
+        } catch {
+          /* socket may have just closed */
+        }
+      }
+    }
   }
 
   // --- Settlement ---------------------------------------------------------------
@@ -775,7 +930,17 @@ export class PokerTableDO extends DurableObject<Env> {
     const leavers = seatRows.filter((s) => s.leavePending === 1).map((s) => s.seat);
     for (const seat of leavers) this.freeSeat(seat);
     this.ctx.storage.sql.exec("DELETE FROM pending_disconnects");
-    await this.ctx.storage.deleteAlarm();
+
+    // Arm the between-hands auto-deal countdown (see the file header and
+    // fireNextHandAlarm) — unconditionally: whether enough occupants are
+    // still connected to actually deal is decided at fire time, not here.
+    // Runs even on a repeated (already-settled) trySettle() call, which just
+    // restarts the countdown from now — harmless, since forceSettle() is an
+    // ops/testing-only path, not something a real hand-end triggers twice.
+    const nextHandAt = Date.now() + NEXT_HAND_DELAY_MS;
+    this.ctx.storage.sql.exec("UPDATE table_meta SET next_hand_at = ? WHERE id = 1", nextHandAt);
+    await this.rearmAlarm();
+    this.broadcastNextHand(nextHandAt);
 
     this.broadcastState();
     await this.maybeNotifyTableEmptied();
@@ -811,13 +976,17 @@ export class PokerTableDO extends DurableObject<Env> {
     seatRows: readonly SeatRow[],
     deltas: Readonly<Record<Seat, number>>,
   ): Promise<void> {
+    // One batched D1 read for every seated user's post-settlement balance —
+    // also refreshes each seat row's cached `credits` column, which the very
+    // next broadcastState() call reads from instead of hitting D1 again.
+    await this.refreshSeatCredits(seatRows.map((s) => s.userId));
+    const freshSeats = this.loadSeats();
+
     for (const seatRow of seatRows) {
       const sockets = this.ctx.getWebSockets(`seat:${seatRow.seat}`);
       if (sockets.length === 0) continue;
-      const balanceRow = await this.env.DB.prepare("SELECT credits FROM users WHERE id = ?")
-        .bind(seatRow.userId)
-        .first<{ credits: number }>();
-      const msg: SettledMessage = { type: "settled", handNo, deltas, newBalance: balanceRow?.credits };
+      const newBalance = freshSeats.find((s) => s.seat === seatRow.seat)?.credits;
+      const msg: SettledMessage = { type: "settled", handNo, deltas, newBalance };
       const json = JSON.stringify(msg);
       for (const ws of sockets) {
         try {
@@ -846,6 +1015,7 @@ export class PokerTableDO extends DurableObject<Env> {
         connected: this.ctx.getWebSockets(`seat:${seat}`).length > 0,
         ready: row?.ready === 1,
         leavePending: row?.leavePending === 1,
+        credits: row?.credits ?? 0,
       };
     });
 
@@ -856,7 +1026,7 @@ export class PokerTableDO extends DurableObject<Env> {
         type: "state",
         handNo: meta.handNo,
         seats: seatStatuses,
-        view: gameState ? viewFor(gameState, seat) : null,
+        view: viewForSeatOrSpectator(gameState, seat),
       };
       const json = JSON.stringify(msg);
       for (const ws of sockets) {
@@ -942,7 +1112,8 @@ export class PokerTableDO extends DurableObject<Env> {
     return this.ctx.storage.sql
       .exec<TableMetaRow>(
         `SELECT table_id as tableId, game_id as gameId, stake, visibility, invite_code as inviteCode,
-                host_user_id as hostUserId, hand_no as handNo, dealer_seat as dealerSeat, ever_seated as everSeated
+                host_user_id as hostUserId, hand_no as handNo, dealer_seat as dealerSeat, ever_seated as everSeated,
+                next_hand_at as nextHandAt
          FROM table_meta WHERE id = 1`,
       )
       .toArray()[0];
@@ -951,9 +1122,30 @@ export class PokerTableDO extends DurableObject<Env> {
   private loadSeats(): SeatRow[] {
     return this.ctx.storage.sql
       .exec<SeatRow>(
-        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending FROM seats ORDER BY seat",
+        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits FROM seats ORDER BY seat",
       )
       .toArray();
+  }
+
+  /**
+   * Refreshes the cached `credits` column for every given userId's seat row,
+   * in a single `WHERE id IN (...)` D1 query — see GameTableDO's identically
+   * named method for the full rationale (same two call sites — connect/
+   * reconnect and post-settlement — same deleted-user policy of leaving a
+   * missing id's last cached value alone).
+   */
+  private async refreshSeatCredits(userIds: readonly string[]): Promise<void> {
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => "?").join(", ");
+    const { results } = await this.env.DB.prepare(
+      `SELECT id, credits FROM users WHERE id IN (${placeholders})`,
+    )
+      .bind(...ids)
+      .all<{ id: string; credits: number }>();
+    for (const row of results) {
+      this.ctx.storage.sql.exec("UPDATE seats SET credits = ? WHERE user_id = ?", row.credits, row.id);
+    }
   }
 
   private loadGameStateRow(): GameStateRow {

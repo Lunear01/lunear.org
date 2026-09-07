@@ -13,7 +13,7 @@ import {
   type Seat,
 } from "poker";
 import { describe, expect, it } from "vitest";
-import type { ServerMessage, SettledMessage, StateMessage } from "../src/durable-objects/poker-protocol";
+import type { NextHandMessage, ServerMessage, SettledMessage, StateMessage } from "../src/durable-objects/poker-protocol";
 
 const STAKE = 10;
 const GAME_ID = "poker";
@@ -146,6 +146,10 @@ function attachFrameQueue(ws: WebSocket): FrameQueue {
 
 function asStateMessage(m: ServerMessage): StateMessage | null {
   return m.type === "state" ? m : null;
+}
+
+function asNextHandMessage(m: ServerMessage): NextHandMessage | null {
+  return m.type === "nextHand" ? m : null;
 }
 
 /** Non-null only for a live betting street (preflop/flop/turn/river). */
@@ -726,8 +730,8 @@ describe("PokerTableDO — disconnect grace expiry", () => {
   });
 });
 
-describe("PokerTableDO — drop-in after a settled hand", () => {
-  it("lets a new user take the open seat between hands and join the next hand with the dealer rotated", async () => {
+describe("PokerTableDO — drop-in and auto-deal between hands", () => {
+  it("lets a new user take the open seat between hands, then auto-deals the next hand (dealer rotated) once the alarm fires", async () => {
     const tableId = `t-dropin-${crypto.randomUUID().slice(0, 8)}`;
     const [host, p2, p3, p4] = await Promise.all([
       registerUser("pkdihost"),
@@ -763,6 +767,12 @@ describe("PokerTableDO — drop-in after a settled hand", () => {
     send(sockets[1], { type: "fold" }); // only seat2 remains -> finished, no showdown
     await sockets[2].nextFrameMatching((m) => m.type === "settled");
 
+    // The between-hands countdown starts right after settlement (this is
+    // hand 1 -> hand 2, not the table's first-ever hand, so the manual
+    // ready-up path no longer applies at all from here on).
+    const nextHand = asNextHandMessage(await sockets[2].nextFrameMatching((m) => asNextHandMessage(m) !== null))!;
+    expect(nextHand.at).toBeGreaterThanOrEqual(Date.now());
+
     // Seat0 never posted anything (UTG fold) — its zero delta is skipped.
     const ledger1 = await ledgerRowsForHand(tableId, 1);
     expect(ledger1.results).toHaveLength(2);
@@ -773,10 +783,18 @@ describe("PokerTableDO — drop-in after a settled hand", () => {
     expect(asStateMessage(joinedState)!.seats[3]).toMatchObject({ userId: p4.id, ready: false });
 
     const allSockets = [...sockets, s4];
-    await readyAllButLast(allSockets);
-    send(allSockets[3], { type: "ready" });
 
-    // Dealer rotates: hand 1's dealer was seat0 -> next occupied seat > 0 among [0,1,2,3] is seat1.
+    // A stray 'ready' during the countdown is a harmless no-op: it must not
+    // start hand 2 early (there's no ready-ack broadcast to wait for here —
+    // that's the point).
+    send(allSockets[0], { type: "ready" });
+
+    // The alarm fires the auto-deal: all 4 seats are connected, so hand 2
+    // deals immediately with the dealer rotated (hand 1's dealer was seat0
+    // -> next occupied seat > 0 among [0,1,2,3] is seat1).
+    const ran = await runDurableObjectAlarm(stub);
+    expect(ran).toBe(true);
+
     const hand2Preflop = bettingView(
       await allSockets[0].nextFrameMatching((m) => asStateMessage(m)?.handNo === 2 && bettingView(m) !== null),
     )!;
@@ -784,5 +802,200 @@ describe("PokerTableDO — drop-in after a settled hand", () => {
     expect(hand2Preflop.seats).toEqual([0, 1, 2, 3]);
 
     for (const s of allSockets) s.ws.close();
+  });
+});
+
+describe("PokerTableDO — auto-deal skips a disconnected-but-seated occupant", () => {
+  it("keeps a seat that's disconnected across settlement but leaves it out of the auto-dealt next hand", async () => {
+    const tableId = `t-autoskip-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("pkashost"),
+      registerUser("pkasp2"),
+      registerUser("pkasp3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.POKER_TABLE_DO.getByName(tableId);
+    const deck1 = buildDeck(
+      [
+        [0, "2c", "3c"],
+        [1, "4c", "5c"],
+        [2, "6c", "7c"],
+      ],
+      ["8c", "9c", "Tc", "Jc", "Qc"],
+    );
+    await stub.setTestFixedDeal({ shuffledDeck: deck1, dealerSeat: 0 });
+
+    const sockets: FrameQueue[] = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+    await readyAllButLast(sockets);
+    send(sockets[2], { type: "ready" });
+    await sockets[0].nextFrameMatching((m) => bettingView(m)?.phase === "preflop" && bettingView(m)?.currentTurn === 0);
+
+    // Seat2 (the big blind) disconnects mid-hand, before their turn is ever
+    // reached: they're never marked leave-pending (their 30s grace never
+    // expires) and the hand ends by the other two folding around them, so
+    // their disconnect-grace row is silently cancelled at settlement (see
+    // trySettle's unconditional `DELETE FROM pending_disconnects`) rather
+    // than ever firing. This is the only way a seat can genuinely be
+    // disconnected-but-seated once a hand has settled: a disconnect
+    // happening DURING the between-hands countdown itself frees the seat
+    // immediately instead (see the file header's "leave/exit during the
+    // countdown works normally" rule).
+    sockets[2].ws.close(1000, "network drop");
+    await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats[2]?.connected === false);
+
+    send(sockets[0], { type: "fold" });
+    await sockets[1].nextFrameMatching((m) => bettingView(m)?.currentTurn === 1);
+    send(sockets[1], { type: "fold" }); // only seat2 remains -> finished, uncontested
+    await sockets[0].nextFrameMatching((m) => m.type === "settled");
+    await sockets[0].nextFrameMatching((m) => asNextHandMessage(m) !== null);
+
+    // Seat2 is still seated (never freed) but shows disconnected.
+    const afterSettle = asStateMessage(await sockets[0].nextFrameMatching((m) => asStateMessage(m) !== null))!;
+    expect(afterSettle.seats[2]).toMatchObject({ userId: p3.id, connected: false });
+
+    const ran = await runDurableObjectAlarm(stub);
+    expect(ran).toBe(true);
+
+    // Hand 2 deals only the two connected seats — dealer rotates among just
+    // those (hand 1's dealer was seat0 -> next occupied seat > 0 among
+    // [0, 1] is seat1) — while seat2's occupant stays seated but out of play.
+    const hand2 = asStateMessage(await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.handNo === 2))!;
+    expect(bettingView(hand2)?.dealerSeat).toBe(1);
+    expect(bettingView(hand2)?.seats).toEqual([0, 1]);
+    expect(hand2.seats[2]).toMatchObject({ userId: p3.id, connected: false });
+
+    // Seat2's occupant can still reconnect mid-hand-they're-not-in: the
+    // engine's viewFor would throw for a seat outside state.seats during a
+    // live betting street, so the DO sends a spectator-safe null view
+    // instead (see viewForSeatOrSpectator) rather than crashing or leaking
+    // another seat's hole cards.
+    const s3reconnect = await openTableSocket(tableId, p3.cookie);
+    const seat2State = asStateMessage(
+      await s3reconnect.nextFrameMatching((m) => asStateMessage(m) !== null),
+    )!;
+    expect(seat2State.seats[2]).toMatchObject({ userId: p3.id, connected: true });
+    expect(seat2State.view).toBeNull();
+
+    sockets[0].ws.close();
+    sockets[1].ws.close();
+    s3reconnect.ws.close();
+  });
+});
+
+describe("PokerTableDO — auto-deal falls back to manual ready-up under 2 connected occupants", () => {
+  it("does not auto-deal when fewer than 2 occupied seats are connected at alarm-fire; ready-up still works afterward", async () => {
+    const tableId = `t-fallback-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("pkfbhost"),
+      registerUser("pkfbp2"),
+      registerUser("pkfbp3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.POKER_TABLE_DO.getByName(tableId);
+    const deck1 = buildDeck(
+      [
+        [0, "2c", "3c"],
+        [1, "Ah", "As"],
+      ],
+      SHOWDOWN_BOARD,
+    );
+    await stub.setTestFixedDeal({ shuffledDeck: deck1, dealerSeat: 0 });
+
+    const sockets = [await openTableSocket(tableId, host.cookie), await openTableSocket(tableId, p2.cookie)];
+    await readyAllButLast(sockets);
+    send(sockets[1], { type: "ready" });
+    await sockets[0].nextFrameMatching((m) => bettingView(m)?.phase === "preflop" && bettingView(m)?.currentTurn === 0);
+
+    send(sockets[0], { type: "fold" }); // heads-up: dealer folds -> seat1 wins uncontested
+    await sockets[1].nextFrameMatching((m) => m.type === "settled");
+    await sockets[1].nextFrameMatching((m) => asNextHandMessage(m) !== null);
+
+    // Host leaves during the countdown — a leave during the countdown works
+    // normally (frees the seat immediately, per the file header) — leaving
+    // only 1 occupied, connected seat.
+    send(sockets[0], { type: "leave" });
+    await sockets[1].nextFrameMatching((m) => asStateMessage(m)?.seats[0]?.userId === null);
+    sockets[0].ws.close();
+
+    const ran = await runDurableObjectAlarm(stub);
+    expect(ran).toBe(true);
+
+    // Fewer than 2 connected occupants at fire time -> falls back to ready
+    // phase: no new hand deals, handNo stays at 1.
+    const afterAlarm = asStateMessage(await sockets[1].nextFrameMatching((m) => asStateMessage(m) !== null))!;
+    expect(afterAlarm.handNo).toBe(1);
+    expect(afterAlarm.seats[1]).toMatchObject({ userId: p2.id, ready: false });
+
+    // Manual ready-up still works after the fallback: a 3rd player takes the
+    // open seat and readying both of them up starts hand 2 the normal way.
+    const s3 = await openTableSocket(tableId, p3.cookie);
+    await s3.nextFrameMatching((m) => asStateMessage(m) !== null);
+
+    send(sockets[1], { type: "ready" });
+    await sockets[1].nextFrameMatching((m) => asStateMessage(m)?.seats[1]?.ready === true);
+    send(s3, { type: "ready" });
+
+    const hand2 = asStateMessage(await sockets[1].nextFrameMatching((m) => asStateMessage(m)?.handNo === 2))!;
+    expect(hand2.seats.filter((s) => s.userId !== null)).toHaveLength(2);
+
+    sockets[1].ws.close();
+    s3.ws.close();
+  });
+});
+
+describe("PokerTableDO — seat broadcasts carry live credit balances", () => {
+  it("caches each seat's D1 credits on connect and refreshes them after settlement", async () => {
+    const tableId = `t-credits-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2] = await Promise.all([registerUser("pkcrhost"), registerUser("pkcrp2")]);
+    await initTable(tableId, host.cookie, STAKE);
+    const stub = env.POKER_TABLE_DO.getByName(tableId);
+    const deck = buildDeck(
+      [
+        [0, "2c", "3c"],
+        [1, "Ah", "As"],
+      ],
+      SHOWDOWN_BOARD,
+    );
+    await stub.setTestFixedDeal({ shuffledDeck: deck, dealerSeat: 0 });
+
+    const users = [host, p2] as const;
+    const before = await Promise.all(
+      users.map((u) => env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>()),
+    );
+
+    const sockets = [await openTableSocket(tableId, host.cookie), await openTableSocket(tableId, p2.cookie)];
+
+    // Connect-time caching: the very first 'state' each seat sees already
+    // carries its own occupant's real D1 balance, not a stale/zero default.
+    const joined0 = asStateMessage(await sockets[0].nextFrameMatching((m) => asStateMessage(m) !== null))!;
+    expect(joined0.seats[0].credits).toBe(before[0]!.credits);
+
+    await readyAllButLast(sockets);
+    send(sockets[1], { type: "ready" });
+    await sockets[0].nextFrameMatching((m) => bettingView(m)?.phase === "preflop" && bettingView(m)?.currentTurn === 0);
+
+    send(sockets[0], { type: "fold" }); // heads-up fold-out -> seat1 wins uncontested
+    await sockets[1].nextFrameMatching((m) => m.type === "settled");
+
+    const afterSettle = asStateMessage(await sockets[0].nextFrameMatching((m) => asStateMessage(m) !== null))!;
+    const after = await Promise.all(
+      users.map((u) => env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>()),
+    );
+    const expected = expectedDeltasFromReplay([0, 1], 0, STAKE, deck, [[0, { type: "fold" }]]);
+
+    // Broadcast credits right after settlement match the real, post-delta D1
+    // balances for BOTH seats — the refresh is one batched query covering
+    // every seated userId, not just the acting seat.
+    expect(afterSettle.seats[0].credits).toBe(after[0]!.credits);
+    expect(afterSettle.seats[1].credits).toBe(after[1]!.credits);
+    expect(after[0]!.credits).toBe(before[0]!.credits + expected[0]);
+    expect(after[1]!.credits).toBe(before[1]!.credits + expected[1]);
+
+    sockets[0].ws.close();
+    sockets[1].ws.close();
   });
 });
