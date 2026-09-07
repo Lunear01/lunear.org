@@ -408,6 +408,32 @@ a {
   z-index: 1;
 }
 
+.game-tile__art--blackjack {
+  gap: 0;
+}
+
+/* Two fanned face-up "cards" for the blackjack tile — the A/J pair itself. */
+.game-tile__bjcard {
+  width: 2rem;
+  height: 2.8rem;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-8deg);
+}
+
+.game-tile__bjcard--red {
+  color: var(--color-danger);
+  transform: rotate(8deg) translateY(0.2rem);
+  margin-left: -0.6rem;
+}
+
 .game-tile__body {
   padding: 1rem;
 }
@@ -2029,4 +2055,46 @@ a {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* ---------- blackjack table (.bj- prefix) ----------
+   Reuses the poker section's chrome verbatim — .pk-seat* (seat boxes, turn/
+   winner glows, badges, delta chips), .pk-center (the dealer's cloth patch),
+   .pk-board (dealer card sizing), .pk-reveal__cards (seat card rows),
+   .pk-self/.pk-actionbar/.pk-nexthand, and the shared .flip* mechanics.
+   Only the layout (dealer on top, one seat grid below — no flanking columns)
+   and two badge colors are new. */
+
+.bj-felt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  background: radial-gradient(ellipse at center, var(--color-felt-light), var(--color-felt-dark));
+}
+
+.bj-dealer {
+  min-height: 120px;
+}
+
+.bj-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.bj-seat__cards {
+  flex-wrap: wrap;
+}
+
+.bj-badge--blackjack {
+  background: var(--color-gold);
+  color: var(--color-ink);
+}
+
+.bj-badge--doubled {
+  background: rgba(217, 164, 65, 0.25);
+  color: var(--color-gold-light);
 }

@@ -3,6 +3,7 @@ import { Header } from "./components/Header";
 import { InstallHint } from "./components/InstallHint";
 import { RequireAdmin, RequireAuth } from "./components/RequireAuth";
 import Admin from "./pages/Admin";
+import BlackjackTable from "./pages/BlackjackTable";
 import GamePicker from "./pages/GamePicker";
 import LiarsBarTable from "./pages/LiarsBarTable";
 import Lobby from "./pages/Lobby";
@@ -12,8 +13,8 @@ import Register from "./pages/Register";
 import Table from "./pages/Table";
 
 // Dispatches /table/:gameId/:tableId to the right game's table screen.
-// All three registered games (doudizhu, liarsbar, poker) are wired to real
-// game engines and table screens.
+// All four registered games (doudizhu, liarsbar, poker, blackjack) are wired
+// to real game engines and table screens.
 function TableRoute() {
   const { gameId } = useParams<{ gameId: string }>();
   switch (gameId) {
@@ -23,6 +24,8 @@ function TableRoute() {
       return <LiarsBarTable />;
     case "poker":
       return <PokerTable />;
+    case "blackjack":
+      return <BlackjackTable />;
     default:
       return <Navigate to="/" replace />;
   }

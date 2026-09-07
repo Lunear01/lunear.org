@@ -14,6 +14,7 @@ const GAME_NAMES: Record<string, string> = {
   doudizhu: "Fight the Landlord",
   liarsbar: "Liar's Bar",
   poker: "Poker",
+  blackjack: "Blackjack",
 };
 
 const OPEN_PARTIES_REFRESH_MS = 5000;
