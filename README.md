@@ -12,6 +12,12 @@ Built for fun, not for money. Don't use it as a gambling site.
 - **Liar's Bar** — `games/liarsbar`
 - **Poker** — `games/poker`
 
+TODO: 
+- Black Jack
+- Chu Dai D
+- UNO
+- Pescalo
+
 Each game package holds pure game logic and rules, with no server or UI code, so it can be tested
 and reused on its own.
 
