@@ -54,6 +54,10 @@ function formatDelta(n: number): string {
   return n > 0 ? `+${n.toLocaleString()}` : n.toLocaleString();
 }
 
+function formatCredits(n: number): string {
+  return n.toLocaleString();
+}
+
 function seatLabel(seats: readonly SeatStatus[] | null, seat: Seat): string {
   return seats?.find((s) => s.seat === seat)?.username ?? `Seat ${seat}`;
 }
@@ -322,6 +326,11 @@ function LiarsBarOpponentSeat({
           aria-label={row?.connected ? "connected" : "disconnected"}
         />
         <span className="table-opponent__name">{row?.username ?? "Waiting…"}</span>
+        {row?.userId !== null && row !== undefined && (
+          <span className={`seat-credits ${row.credits < 0 ? "seat-credits--negative" : ""}`}>
+            {formatCredits(row.credits)}
+          </span>
+        )}
         {count !== null && !isDead && <span className="table-opponent__count">({count})</span>}
         {isTurn && <span title="Current turn">🎯</span>}
         {row?.ready && !view && <span className="ready-badge">Ready</span>}

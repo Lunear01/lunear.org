@@ -31,6 +31,16 @@ interface PokerSocketState {
    * name on their own settlement line instead of showing "Open".
    */
   usernames: Readonly<Record<Seat, string>>;
+  /**
+   * The epoch-ms target from the most recent 'nextHand' message (broadcast
+   * right after 'settled' — see poker-protocol.ts's NextHandMessage doc
+   * comment), or null before any hand has settled. Cleared by the exact same
+   * signal `settled` itself clears on (handNo advancing on a fresh 'state'
+   * frame), so the two always disappear together — PokerTable uses this only
+   * to render a "next hand in Ns" countdown, never as a guarantee a hand
+   * actually starts at this time (see the wire type's own doc comment).
+   */
+  nextHand: number | null;
 }
 
 type Action =
@@ -46,6 +56,7 @@ const initialState: PokerSocketState = {
   error: null,
   settled: null,
   usernames: {},
+  nextHand: null,
 };
 
 function reducer(state: PokerSocketState, action: Action): PokerSocketState {
@@ -66,12 +77,19 @@ function reducer(state: PokerSocketState, action: Action): PokerSocketState {
           // (ready-up -> deal) means it's done showing — mirrors doudizhu's/
           // liarsbar's round-keyed clearing rule, keyed on handNo here.
           const settled = state.settled && msg.handNo !== state.settled.handNo ? null : state.settled;
-          return { ...state, handNo: msg.handNo, seats: msg.seats, view: msg.view, settled, usernames };
+          // Same clearing rule as `settled` above, keyed on handNo actually
+          // advancing (not on `view` — a skipped/disconnected-at-deal-time
+          // seat's `view` can itself go null mid-hand, which must NOT be
+          // mistaken for "the next hand arrived").
+          const nextHand = msg.handNo !== state.handNo ? null : state.nextHand;
+          return { ...state, handNo: msg.handNo, seats: msg.seats, view: msg.view, settled, nextHand, usernames };
         }
         case "error":
           return { ...state, error: msg };
         case "settled":
           return { ...state, settled: msg };
+        case "nextHand":
+          return { ...state, nextHand: msg.at };
         default:
           return state;
       }

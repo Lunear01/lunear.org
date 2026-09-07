@@ -26,6 +26,12 @@
      respect) — see .pk-holecard in the poker section below. */
   --pk-hole-w: clamp(52px, 14vw, 88px);
   --pk-hole-h: calc(var(--pk-hole-w) * 1.4);
+  /* The community board only ever holds 5 unfanned cards (never the 20-card
+     fan budget --card-w is tuned for), so it can afford to run larger for
+     visual hierarchy ("board cards larger than seat text") — see .pk-board
+     below. */
+  --pk-board-w: clamp(40px, 9vw, 74px);
+  --pk-board-h: calc(var(--pk-board-w) * 1.4);
   color-scheme: dark;
 }
 
@@ -828,6 +834,20 @@ a {
   font-weight: 700;
 }
 
+/* A seat's live credits balance, shown next to its name — shared, unobtrusive
+   styling across all three games' seat/opponent panels (Table.tsx's
+   OpponentSeat, LiarsBarTable.tsx's LiarsBarOpponentSeat, PokerTable.tsx's
+   PkSeat), all fed by the same `SeatStatus.credits` wire field. */
+.seat-credits {
+  color: var(--color-gold-light);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.seat-credits--negative {
+  color: var(--color-danger);
+}
+
 .table-center {
   display: flex;
   flex-direction: column;
@@ -1024,6 +1044,54 @@ a {
   margin-left: calc(var(--cardback-sm-w) * -0.6);
 }
 
+/* ---------- flip-card mechanics (shared) ----------
+   Generic counterpart to LiarsBar's own `.lb-flip*` (see below) — added as a
+   new, unprefixed sibling rather than restructuring that screen's working
+   code. Same mechanics: an outer perspective box, an inner 3D-rotated pair of
+   backface-hidden faces; toggling `.flip--revealed` rotates the inner 180deg
+   so the pre-rotated front face becomes visible right-side-up. Used by
+   PokerTable's community-card and showdown-reveal flip-ins. */
+.flip {
+  width: var(--card-w);
+  height: var(--card-h);
+  perspective: 800px;
+  flex-shrink: 0;
+}
+
+.flip__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.5s ease;
+  transform-style: preserve-3d;
+}
+
+.flip--revealed .flip__inner {
+  transform: rotateY(180deg);
+}
+
+.flip__face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 6px;
+}
+
+.flip__face--back {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-felt-light),
+    var(--color-felt-light) 4px,
+    var(--color-felt-dark) 4px,
+    var(--color-felt-dark) 8px
+  );
+  border: 1px solid var(--color-gold);
+}
+
+.flip__face--front {
+  transform: rotateY(180deg);
+}
+
 .settled-overlay {
   position: fixed;
   inset: 0;
@@ -1132,6 +1200,10 @@ a {
   .ready-badge {
     font-size: 0.875rem;
     padding: 0.1rem 0.5rem;
+  }
+
+  .seat-credits {
+    font-size: 0.85rem;
   }
 
   .settled-card .modal__hint {
@@ -1406,6 +1478,11 @@ a {
   border-radius: var(--radius);
   padding: 0.35rem 0.5rem;
   min-width: 0;
+  /* Depth, and an anchor for the floating delta chip (.pk-delta-chip) below. */
+  position: relative;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .pk-seat--me {
@@ -1419,7 +1496,95 @@ a {
 }
 
 .pk-seat--folded {
-  opacity: 0.6;
+  opacity: 0.5;
+  filter: grayscale(0.4);
+}
+
+/* Current-turn seat: a clear glowing gold outline, pulsing gently while it's
+   this seat's turn (see the reduced-motion block near the end of this
+   section, which disables the pulse but keeps the static glow). */
+.pk-seat--turn {
+  border-color: var(--color-gold-light);
+  box-shadow: 0 0 0 2px var(--color-gold-light), 0 0 14px rgba(240, 198, 110, 0.55);
+  animation: pk-turn-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pk-turn-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--color-gold-light), 0 0 8px rgba(240, 198, 110, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--color-gold-light), 0 0 20px rgba(240, 198, 110, 0.85);
+  }
+}
+
+/* Winning seat, during the post-settlement countdown only (see PkSeat's
+   `isWinnerSeat`) — a brief double-pulse gold glow drawing the eye to where
+   the pot is "going". */
+.pk-seat--winner {
+  border-color: var(--color-gold-light);
+  animation: pk-seat-glow 1.2s ease-in-out 2;
+}
+
+@keyframes pk-seat-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--color-gold-light);
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--color-gold-light), 0 0 18px rgba(217, 164, 65, 0.85);
+  }
+}
+
+/* Floating per-seat win/loss chip, shown once per settlement (remounted via
+   React key={settled.handNo} in PkSeat) — rises in gold for a gain, sinks in
+   red for a loss. Purely decorative, so it never intercepts pointer events. */
+.pk-delta-chip {
+  position: absolute;
+  top: -6px;
+  right: 6px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  pointer-events: none;
+  animation: pk-chip-rise 1.8s ease-out forwards;
+}
+
+.pk-delta-chip--gain {
+  color: var(--color-gold-light);
+}
+
+.pk-delta-chip--loss {
+  color: var(--color-danger);
+  animation-name: pk-chip-sink;
+}
+
+@keyframes pk-chip-rise {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-28px);
+    opacity: 0;
+  }
+}
+
+@keyframes pk-chip-sink {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(28px);
+    opacity: 0;
+  }
 }
 
 .pk-seat__top {
@@ -1489,25 +1654,37 @@ a {
   color: var(--color-gold-light);
 }
 
+/* A felt-cloth "table surface" panel behind the board/pot, visually distinct
+   from the flanking seat columns — rounded rather than a literal percentage
+   ellipse (which clips oddly at narrow/tall aspect ratios) but still reads as
+   an inset cloth patch via the radial gradient + inner shadow. */
 .pk-center {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  gap: 0.5rem;
   text-align: center;
-  padding: 0.5rem;
-  min-height: 140px;
+  padding: 0.9rem 0.75rem;
+  min-height: 150px;
+  background: radial-gradient(ellipse at center, rgba(31, 58, 99, 0.6), rgba(10, 25, 48, 0.8));
+  border-radius: clamp(20px, 6vw, 48px);
+  box-shadow:
+    inset 0 0 32px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(217, 164, 65, 0.22);
 }
 
 .pk-phase {
-  color: var(--color-gold-light);
+  color: var(--color-muted);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   margin: 0;
 }
 
+/* Board cards (and their flip-in / empty-slot counterparts) run larger than
+   the base --card-w fan-sizing token — see --pk-board-w's :root comment. */
 .pk-board {
   display: flex;
   gap: 0.3rem;
@@ -1516,8 +1693,23 @@ a {
 }
 
 .pk-board .playing-card,
-.pk-board .pk-cardslot {
+.pk-board .pk-cardslot,
+.pk-board .flip {
   margin-left: 0;
+  width: var(--pk-board-w);
+  height: var(--pk-board-h);
+}
+
+.pk-board .playing-card .playing-card__rank {
+  font-size: calc(4px + var(--pk-board-w) * 0.17);
+}
+
+.pk-board .playing-card .playing-card__suit {
+  font-size: calc(3px + var(--pk-board-w) * 0.145);
+}
+
+.pk-board .playing-card .playing-card__pip {
+  font-size: calc(var(--pk-board-w) * 0.4);
 }
 
 .pk-cardslot {
@@ -1528,11 +1720,34 @@ a {
   flex-shrink: 0;
 }
 
+/* Pot is the single biggest, most prominent number on the felt (visual
+   hierarchy: pot > board > seat chrome) — see .pk-pot--settling below for its
+   post-hand "sweeping toward the winner" pulse. */
 .pk-pot {
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 800;
   color: var(--color-gold-light);
   margin: 0;
+  text-shadow: 0 1px 8px rgba(217, 164, 65, 0.35);
+}
+
+.pk-pot--settling {
+  animation: pk-pot-pulse 1s ease-out 1;
+}
+
+@keyframes pk-pot-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    transform: scale(1.25);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .pk-currentbet {
@@ -1585,6 +1800,17 @@ a {
   font-weight: 700;
 }
 
+/* Hand-name label fades in only after this row's flip has visually finished
+   (see ShowdownRow's `labelShown` timing) — hidden rather than unrendered so
+   the row's layout doesn't jump when it appears. */
+.pk-reveal__hand {
+  transition: opacity 0.3s ease;
+}
+
+.pk-reveal__hand--pending {
+  opacity: 0;
+}
+
 .pk-finished-banner {
   font-weight: 700;
   color: var(--color-gold-light);
@@ -1599,15 +1825,46 @@ a {
   padding: 0.5rem;
 }
 
+/* Subtle deal-in: plays once per hand because the wrapper is remounted via
+   React key={holeCards.map(id).join(",")} whenever a fresh hand's hole cards
+   arrive — a plain CSS `animation` (not `transition`) auto-plays on mount,
+   so no JS timing is needed here. */
 .pk-self__cards {
   display: flex;
   gap: 0.4rem;
+  animation: pk-dealin 0.35s ease-out;
+}
+
+@keyframes pk-dealin {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .pk-self__committed {
   font-size: 0.8rem;
   color: var(--color-muted);
   margin: 0;
+}
+
+.pk-self__credits {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-gold-light);
+  margin: 0;
+}
+
+/* Own dedicated negative modifier (rather than reusing .seat-credits--negative
+   from the shared section above) — that shared rule sits earlier in this
+   file, so at equal specificity .pk-self__credits's own color would win the
+   cascade tie and silently mask it. */
+.pk-self__credits--negative {
+  color: var(--color-danger);
 }
 
 /* .playing-card sets width/height/margin-left directly (equal specificity to
@@ -1662,6 +1919,89 @@ a {
   flex: 1;
 }
 
+/* Non-blocking post-settlement panel (see NextHandBanner) — deliberately NOT
+   .settled-overlay: the felt/seats stay visible underneath so the per-seat
+   delta chips and pot pulse are actually visible while this shows. */
+.pk-nexthand {
+  position: fixed;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 180;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--color-felt-dark);
+  border: 1px solid var(--color-gold);
+  border-radius: var(--radius);
+  padding: 0.85rem 1.25rem;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  max-width: 90vw;
+}
+
+.pk-nexthand__winner {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--color-gold-light);
+}
+
+.pk-nexthand__timer {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.pk-nexthand__balance {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* ---------- poker table: mobile legibility (below 720px) ----------
+   Mirrors the doudizhu mobile-legibility block earlier in this file: bump the
+   handful of below-12px seat/action text sizes rather than the base rules, so
+   desktop stays unaffected. */
+@media (max-width: 719px) {
+  .pk-seat {
+    font-size: 0.85rem;
+  }
+
+  .pk-seat__chips,
+  .pk-badge {
+    font-size: 0.75rem;
+  }
+
+  .pk-phase,
+  .pk-currentbet,
+  .pk-self__committed,
+  .pk-self__credits {
+    font-size: 0.85rem;
+  }
+
+  .pk-pot {
+    font-size: 1.4rem;
+  }
+
+  /* The quick-amount buttons (Min/½ pot/Pot/All-in) are .button--small
+     (36px) everywhere else, but that's under the 44px touch-target floor. */
+  .pk-raise__quick .button--small {
+    min-height: var(--touch-target);
+    font-size: 0.9rem;
+  }
+
+  .pk-nexthand__winner {
+    font-size: 1.2rem;
+  }
+
+  .pk-nexthand__timer,
+  .pk-nexthand__balance {
+    font-size: 0.9rem;
+  }
+}
+
 @media (min-width: 720px) {
   .pk-felt {
     grid-template-columns: 1fr 2.2fr 1fr;
@@ -1671,5 +2011,22 @@ a {
   .pk-seat {
     font-size: 0.8rem;
     padding: 0.5rem 0.7rem;
+  }
+}
+
+/* ---------- poker: reduced motion ----------
+   Consolidated in one place (rather than scattered per-rule) per this
+   feature's own accessibility requirement — degrades every new animation
+   introduced above to instant appearance. Existing pre-poker animations
+   (.spinner, .lb-flip*, doudizhu/liarsbar's own effects) are untouched. */
+@media (prefers-reduced-motion: reduce) {
+  .pk-delta-chip,
+  .pk-pot--settling,
+  .pk-seat--winner,
+  .pk-seat--turn,
+  .pk-self__cards,
+  .flip__inner {
+    animation: none !important;
+    transition: none !important;
   }
 }
