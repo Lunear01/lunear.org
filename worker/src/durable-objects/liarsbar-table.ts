@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   SEATS,
   applyAction,
+  gameDefinition,
   createDeck,
   createGame,
   pickTableRank,
@@ -39,7 +40,10 @@ export type { InitResult, TableInitParams };
 // settlement via ledger idempotency keys in one batch, abort-on-leave /
 // 30s-disconnect-grace via a single alarm, notifyLobbyTableCleared, and
 // rematch by round counter. Differences follow from the engine's own shape
-// (games/liarsbar/src/game.ts): 4 seats instead of 3, no bidding phase (every
+// (games/liarsbar/src/game.ts): 2-4 seats instead of a fixed 3 (a match
+// starts once every seated player — at least gameDefinition.minSeats of them
+// — is ready; whoever takes a free seat mid-match waits for the next one),
+// no bidding phase (every
 // hand is "play or challenge" from the first card dealt), and a mid-hand
 // "roundEnd" signal state — a challenge just resolved and >1 seat is still
 // alive — that this DO auto-advances past in the very same tick it's
@@ -157,14 +161,21 @@ function buildResultSummary(
   deltas: Readonly<Record<Seat, number>>,
   seats: readonly SeatRow[],
 ) {
+  // Missing activeSeats: a state persisted before the field existed (all four played).
+  const activeSeats = state.activeSeats ?? SEATS;
   return {
     winner: state.winner,
     baseStake: state.baseStake,
+    activeSeats,
     players: publicPlayersSummary(state.players),
     lastReveal: state.lastReveal,
     deltas,
+    // Only seats that played this game — a bystander seated mid-match is not
+    // part of the archived result.
     seats: Object.fromEntries(
-      seats.map((s) => [s.seat, { userId: s.userId, username: s.username }]),
+      seats
+        .filter((s) => activeSeats.includes(s.seat))
+        .map((s) => [s.seat, { userId: s.userId, username: s.username }]),
     ),
   };
 }
@@ -507,7 +518,9 @@ export class LiarsBarTableDO extends DurableObject<Env> {
     }
     this.ctx.storage.sql.exec("UPDATE seats SET ready = 1 WHERE seat = ?", seat);
     const seats = this.loadSeats();
-    if (seats.length === SEATS.length && seats.every((s) => s.ready === 1)) {
+    // Starts as soon as every seated player is ready — no waiting for a full
+    // table, since 2-4 seats is a legal game.
+    if (seats.length >= gameDefinition.minSeats && seats.every((s) => s.ready === 1)) {
       await this.startNewMatch();
     } else {
       this.broadcastState();
@@ -567,12 +580,14 @@ export class LiarsBarTableDO extends DurableObject<Env> {
     const meta = this.loadMetaRow();
     if (!meta) return;
 
-    const { deck, tableRank, bulletPositions, firstSeat } = this.drawInitialSetup();
+    const activeSeats = this.loadSeats().map((s) => s.seat);
+    const { deck, tableRank, bulletPositions, firstSeat } = this.drawInitialSetup(activeSeats);
     const state = createGame({
       shuffledDeck: deck,
       tableRank,
       bulletPositions,
       firstSeat,
+      activeSeats,
       baseStake: meta.stake,
     });
 
@@ -717,23 +732,20 @@ export class LiarsBarTableDO extends DurableObject<Env> {
       return;
     }
 
-    if (seats.length !== SEATS.length) {
-      console.error("LiarsBarTableDO: cannot settle without all seats filled");
-      return;
-    }
-
-    // Zero-amount deltas never occur for a real, engine-produced FinishedState
-    // (a 4-seat game always finishes with exactly 3 eliminations, so every
-    // seat is either the winner or -baseStake — see settle()'s own doc
-    // comment on why 0 is theoretically possible only for a synthetic
-    // FinishedState no real game reaches) — but a ledger row's amount is
-    // meant to record a meaningful balance change, so a would-be 0 row (and
-    // its matching credits no-op update) is skipped rather than written.
+    // Zero-amount deltas belong to seats outside the game (absent, or seated
+    // mid-match for the next one) — settle() pays them nothing, and a ledger
+    // row's amount is meant to record a meaningful balance change, so a
+    // would-be 0 row (and its matching credits no-op update) is skipped
+    // rather than written.
     const stmts = [];
     for (const seat of SEATS) {
-      const seatRow = seats.find((s) => s.seat === seat)!;
       const delta = deltas[seat];
       if (delta === 0) continue;
+      const seatRow = seats.find((s) => s.seat === seat);
+      if (!seatRow) {
+        console.error(`LiarsBarTableDO: cannot settle — seat ${seat} owes ${delta} but has no seat row`);
+        return;
+      }
       const idempotencyKey = `settle:${meta.tableId}:${meta.round}:${seatRow.userId}`;
       stmts.push(
         this.env.DB.prepare(
@@ -981,8 +993,10 @@ export class LiarsBarTableDO extends DurableObject<Env> {
 
   /** Used only when starting a brand-new match (fresh createGame call): needs
    * every input the engine's CreateGameOptions takes, including the
-   * once-per-match bullet chamber positions and first seat. */
-  private drawInitialSetup(): {
+   * once-per-match bullet chamber positions and first seat. The random first
+   * seat is drawn from `activeSeats`; a test override's fixed firstSeat must
+   * itself be an active seat (createGame rejects it otherwise). */
+  private drawInitialSetup(activeSeats: readonly Seat[]): {
     deck: Card[];
     tableRank: TableRank;
     bulletPositions: Record<Seat, number>;
@@ -1005,7 +1019,7 @@ export class LiarsBarTableDO extends DurableObject<Env> {
       2: rollBulletChamber(cryptoRandomSource),
       3: rollBulletChamber(cryptoRandomSource),
     };
-    const firstSeat = (crypto.getRandomValues(new Uint32Array(1))[0] % SEATS.length) as Seat;
+    const firstSeat = activeSeats[crypto.getRandomValues(new Uint32Array(1))[0] % activeSeats.length];
     return { deck, tableRank, bulletPositions, firstSeat };
   }
 

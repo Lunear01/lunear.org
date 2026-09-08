@@ -14,7 +14,7 @@ export const engine = { createGame, applyAction, startNextRound, viewFor, settle
 export const gameDefinition = {
   id: "liarsbar",
   name: "Liar's Bar",
-  minSeats: 4,
+  minSeats: 2,
   maxSeats: 4,
   engine,
   // Filled in by whichever steps add the room Durable Object class and table component.

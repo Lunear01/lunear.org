@@ -38,6 +38,9 @@ export interface RevealRecord {
 
 export interface PlayingState {
   readonly phase: "playing";
+  /** Seats playing this game, fixed at createGame. Absent seats are never alive,
+   * never dealt to, and settle at 0. Missing (older persisted state) means all four. */
+  readonly activeSeats?: readonly Seat[];
   readonly baseStake: number;
   readonly tableRank: TableRank;
   readonly hands: Readonly<Record<Seat, readonly Card[]>>;
@@ -52,6 +55,8 @@ export interface PlayingState {
  * deck + pick a table rank and call startNextRound. Mirrors doudizhu's "redeal" signal state. */
 export interface RoundEndState {
   readonly phase: "roundEnd";
+  /** See PlayingState.activeSeats. */
+  readonly activeSeats?: readonly Seat[];
   readonly baseStake: number;
   readonly players: Readonly<Record<Seat, PlayerStatus>>;
   readonly lastReveal: RevealRecord;
@@ -61,6 +66,8 @@ export interface RoundEndState {
 
 export interface FinishedState {
   readonly phase: "finished";
+  /** See PlayingState.activeSeats. */
+  readonly activeSeats?: readonly Seat[];
   readonly baseStake: number;
   readonly winner: Seat;
   readonly players: Readonly<Record<Seat, PlayerStatus>>;
@@ -87,9 +94,22 @@ export interface CreateGameOptions {
   readonly tableRank: TableRank;
   /** One entry per seat, each an integer 1-6 (see rollBulletChamber). Fixed for the whole game. */
   readonly bulletPositions: Readonly<Record<Seat, number>>;
-  /** Seat that leads the first round; the caller decides this. */
+  /** Seat that leads the first round; the caller decides this. Must be active. */
   readonly firstSeat: Seat;
+  /** 2-4 distinct seats taking part; omitted means all four. */
+  readonly activeSeats?: readonly Seat[];
   readonly baseStake: number;
+}
+
+function validateActiveSeats(activeSeats: readonly Seat[]): readonly Seat[] {
+  const unique = [...new Set(activeSeats)].sort((a, b) => a - b);
+  if (unique.length !== activeSeats.length || unique.some((s) => !SEATS.includes(s))) {
+    throw new Error(`activeSeats must be distinct seats 0-3, got ${JSON.stringify(activeSeats)}`);
+  }
+  if (unique.length < 2) {
+    throw new Error(`activeSeats needs at least 2 seats, got ${unique.length}`);
+  }
+  return unique;
 }
 
 function validateBulletPositions(bulletPositions: Readonly<Record<Seat, number>>): void {
@@ -103,15 +123,21 @@ function validateBulletPositions(bulletPositions: Readonly<Record<Seat, number>>
 
 export function createGame(options: CreateGameOptions): PlayingState {
   validateBulletPositions(options.bulletPositions);
+  const activeSeats = validateActiveSeats(options.activeSeats ?? SEATS);
+  if (!activeSeats.includes(options.firstSeat)) {
+    throw new Error(`firstSeat ${options.firstSeat} is not in activeSeats`);
+  }
+  const active = new Set(activeSeats);
   const players: Record<Seat, PlayerStatus> = {
-    0: { alive: true, pulls: 0, bulletChamber: options.bulletPositions[0] },
-    1: { alive: true, pulls: 0, bulletChamber: options.bulletPositions[1] },
-    2: { alive: true, pulls: 0, bulletChamber: options.bulletPositions[2] },
-    3: { alive: true, pulls: 0, bulletChamber: options.bulletPositions[3] },
+    0: { alive: active.has(0), pulls: 0, bulletChamber: options.bulletPositions[0] },
+    1: { alive: active.has(1), pulls: 0, bulletChamber: options.bulletPositions[1] },
+    2: { alive: active.has(2), pulls: 0, bulletChamber: options.bulletPositions[2] },
+    3: { alive: active.has(3), pulls: 0, bulletChamber: options.bulletPositions[3] },
   };
-  const hands = dealHands(options.shuffledDeck, SEATS);
+  const hands = dealHands(options.shuffledDeck, activeSeats);
   return {
     phase: "playing",
+    activeSeats,
     baseStake: options.baseStake,
     tableRank: options.tableRank,
     hands,
@@ -138,6 +164,7 @@ export function startNextRound(state: RoundEndState, options: StartNextRoundOpti
   const hands = dealHands(options.shuffledDeck, aliveSeats);
   return {
     phase: "playing",
+    activeSeats: state.activeSeats,
     baseStake: state.baseStake,
     tableRank: options.tableRank,
     hands,
@@ -253,11 +280,25 @@ function resolveChallenge(state: PlayingState, challengerSeat: Seat, auto: boole
 
   const aliveSeats = SEATS.filter((s) => players[s].alive);
   if (aliveSeats.length === 1) {
-    return { phase: "finished", baseStake: state.baseStake, winner: aliveSeats[0], players, lastReveal };
+    return {
+      phase: "finished",
+      activeSeats: state.activeSeats,
+      baseStake: state.baseStake,
+      winner: aliveSeats[0],
+      players,
+      lastReveal,
+    };
   }
 
   const nextFirstSeat = died ? nextAliveSeat(players, loserSeat) : loserSeat;
-  return { phase: "roundEnd", baseStake: state.baseStake, players, lastReveal, nextFirstSeat };
+  return {
+    phase: "roundEnd",
+    activeSeats: state.activeSeats,
+    baseStake: state.baseStake,
+    players,
+    lastReveal,
+    nextFirstSeat,
+  };
 }
 
 // --- Redacted per-seat views -------------------------------------------------
@@ -284,6 +325,8 @@ function handCountsOf(hands: Readonly<Record<Seat, readonly Card[]>>): Record<Se
 export interface RedactedPlayingView {
   readonly phase: "playing";
   readonly viewer: Seat;
+  /** Seats in this game; a seated user outside it is waiting for the next one. */
+  readonly activeSeats: readonly Seat[];
   readonly hand: readonly Card[];
   readonly handCounts: Readonly<Record<Seat, number>>;
   readonly tableRank: TableRank;
@@ -298,6 +341,7 @@ export interface RedactedPlayingView {
 export interface RedactedRoundEndView {
   readonly phase: "roundEnd";
   readonly viewer: Seat;
+  readonly activeSeats: readonly Seat[];
   readonly baseStake: number;
   readonly players: Readonly<Record<Seat, PublicPlayerStatus>>;
   /** Fully revealed now — a resolved challenge's cards are public to everyone. */
@@ -308,6 +352,7 @@ export interface RedactedRoundEndView {
 export interface RedactedFinishedView {
   readonly phase: "finished";
   readonly viewer: Seat;
+  readonly activeSeats: readonly Seat[];
   readonly baseStake: number;
   readonly winner: Seat;
   readonly players: Readonly<Record<Seat, PublicPlayerStatus>>;
@@ -319,11 +364,13 @@ export type RedactedView = RedactedPlayingView | RedactedRoundEndView | Redacted
 /** Per-seat view: own hand in full, opponents' hands as counts, bullet chambers never included. */
 export function viewFor(state: GameState, viewer: Seat): RedactedView {
   const players = publicPlayers(state.players);
+  const activeSeats = state.activeSeats ?? SEATS;
 
   if (state.phase === "playing") {
     return {
       phase: "playing",
       viewer,
+      activeSeats,
       hand: state.hands[viewer],
       handCounts: handCountsOf(state.hands),
       tableRank: state.tableRank,
@@ -339,6 +386,7 @@ export function viewFor(state: GameState, viewer: Seat): RedactedView {
     return {
       phase: "roundEnd",
       viewer,
+      activeSeats,
       baseStake: state.baseStake,
       players,
       lastReveal: state.lastReveal,
@@ -349,6 +397,7 @@ export function viewFor(state: GameState, viewer: Seat): RedactedView {
   return {
     phase: "finished",
     viewer,
+    activeSeats,
     baseStake: state.baseStake,
     winner: state.winner,
     players,
@@ -361,22 +410,26 @@ export function viewFor(state: GameState, viewer: Seat): RedactedView {
 export type SeatDeltas = Readonly<Record<Seat, number>>;
 
 /**
- * Zero-sum: each eliminated seat loses baseStake, and the winner gains
- * eliminatedCount x baseStake. Stake is read from `state` (set once at
- * createGame) rather than taken as a parameter, so a caller can't mis-pay by
- * passing a mismatched value — mirrors doudizhu's settle(FinishedState).
+ * Zero-sum: each eliminated active seat loses baseStake, and the winner gains
+ * eliminatedCount x baseStake. Absent seats (not in activeSeats) settle at 0.
+ * Stake is read from `state` (set once at createGame) rather than taken as a
+ * parameter, so a caller can't mis-pay by passing a mismatched value —
+ * mirrors doudizhu's settle(FinishedState).
  *
  * In a real, engine-produced FinishedState the winner is always the sole
- * alive seat and eliminatedCount is always 3 (a fixed 4-seat game can only
- * end once exactly one player remains). The formula is still written to stay
- * zero-sum for any eliminatedCount, giving any alive-but-not-the-winner seat
- * a 0 delta — a branch that's inert for every reachable state, but keeps the
- * function correct in isolation (see settle.test.ts's 1/2/3-elimination cases).
+ * alive active seat and eliminatedCount is always activeSeats.length - 1 (a
+ * game can only end once exactly one player remains). The formula is still
+ * written to stay zero-sum for any eliminatedCount, giving any
+ * alive-but-not-the-winner seat a 0 delta — a branch that's inert for every
+ * reachable state, but keeps the function correct in isolation (see
+ * settle.test.ts's 1/2/3-elimination cases).
  */
 export function settle(state: FinishedState): SeatDeltas {
-  const eliminatedCount = SEATS.filter((s) => !state.players[s].alive).length;
+  const active = state.activeSeats ?? SEATS;
+  const eliminatedCount = active.filter((s) => !state.players[s].alive).length;
   const winnerDelta = eliminatedCount * state.baseStake;
   const deltaFor = (seat: Seat): number => {
+    if (!active.includes(seat)) return 0;
     if (seat === state.winner) return winnerDelta;
     return state.players[seat].alive ? 0 : -state.baseStake;
   };

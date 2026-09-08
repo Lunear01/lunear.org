@@ -27,7 +27,7 @@ export default function GamePicker() {
           </div>
           <div className="game-tile__body">
             <h2 className="game-tile__name">Liar&rsquo;s Bar</h2>
-            <p className="game-tile__meta">4 players &middot; Bluffing</p>
+            <p className="game-tile__meta">2&ndash;4 players &middot; Bluffing</p>
           </div>
         </Link>
         <Link to="/lobby/poker" className="game-tile">

@@ -5,7 +5,7 @@ describe("liarsbar registry entry", () => {
   it("identifies itself for the platform registry", () => {
     expect(gameDefinition.id).toBe("liarsbar");
     expect(gameDefinition.name).toBe("Liar's Bar");
-    expect(gameDefinition.minSeats).toBe(4);
+    expect(gameDefinition.minSeats).toBe(2);
     expect(gameDefinition.maxSeats).toBe(4);
     expect(typeof gameDefinition.engine.createGame).toBe("function");
     expect(typeof gameDefinition.engine.applyAction).toBe("function");

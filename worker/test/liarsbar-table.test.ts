@@ -784,3 +784,76 @@ describe("LiarsBarTableDO — deliberate leave aborts the hand", () => {
     for (const s of sockets) s.ws.close();
   });
 });
+
+describe("LiarsBarTableDO — 2-player game (minSeats)", () => {
+  it("starts once both seated players are ready, seats a mid-hand joiner as a bystander, and settles only the two active seats", async () => {
+    const tableId = `t-duo-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([
+      registerUser("lbduoh"),
+      registerUser("lbduo2"),
+      registerUser("lbduo3"),
+    ]);
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.LIARSBAR_TABLE_DO.getByName(tableId);
+    const deck = buildScriptedDeck();
+    await stub.setTestFixedDeal({
+      shuffledDeck: deck,
+      tableRank: TEST_TABLE_RANK,
+      bulletPositions: TEST_BULLETS,
+      firstSeat: TEST_FIRST_SEAT,
+    });
+
+    const before = await Promise.all(
+      [host, p2].map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+
+    const s0 = await openTableSocket(tableId, host.cookie);
+    const s1 = await openTableSocket(tableId, p2.cookie);
+
+    send(s0, { type: "ready" });
+    await s0.nextFrameMatching((m) => asStateMessage(m)?.seats[0].ready === true);
+    send(s1, { type: "ready" });
+    // Two ready players start the match — no waiting for a full table.
+    const dealt = await s0.nextFrameMatching((m) => playingView(m)?.currentTurn === 0);
+    expect(playingView(dealt)?.activeSeats).toEqual([0, 1]);
+
+    // A third player seats mid-hand as a bystander: outside activeSeats, dealt nothing.
+    const s2 = await openTableSocket(tableId, p3.cookie);
+    const bystanderState = await s2.nextFrameMatching(
+      (m) => asStateMessage(m)?.seats[2].userId === p3.id,
+    );
+    const bystanderView = asStateMessage(bystanderState)!.view;
+    expect(bystanderView?.phase).toBe("playing");
+    if (bystanderView?.phase !== "playing") throw new Error("unreachable");
+    expect(bystanderView.activeSeats).toEqual([0, 1]);
+    expect(bystanderView.hand).toEqual([]);
+    // Readying mid-hand is refused.
+    send(s2, { type: "ready" });
+    await s2.nextFrameMatching((m) => m.type === "error" && m.code === "game-in-progress");
+
+    // Seat0 plays a real Q; seat1 challenges (truthful), spins the chamber
+    // (bullet at 1) and dies — one alive seat left, straight to settlement.
+    send(s0, { type: "play", cardIds: ["Q1"] });
+    await s1.nextFrameMatching((m) => playingView(m)?.currentTurn === 1);
+    send(s1, { type: "challenge" });
+    const settledMsg = (await s0.nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
+
+    expect(settledMsg.deltas).toEqual({ 0: STAKE, 1: -STAKE, 2: 0, 3: 0 });
+
+    const ledger = await ledgerRowsForRound(tableId, 1);
+    expect(ledger.results).toHaveLength(2);
+
+    const after = await Promise.all(
+      [host, p2].map((u) =>
+        env.DB.prepare("SELECT credits FROM users WHERE id = ?").bind(u.id).first<{ credits: number }>(),
+      ),
+    );
+    expect(after[0]!.credits).toBe(before[0]!.credits + STAKE);
+    expect(after[1]!.credits).toBe(before[1]!.credits - STAKE);
+
+    for (const s of [s0, s1, s2]) s.ws.close();
+  });
+});

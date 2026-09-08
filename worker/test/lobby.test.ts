@@ -291,16 +291,14 @@ describe("quick play", () => {
   });
 });
 
-// Liar's Bar (minSeats/maxSeats 4) is registered in worker/src/registry.ts
-// and now backed by the real LiarsBarTableDO (durable-objects/liarsbar-table.ts)
-// and the real "liarsbar" engine package. These tests exercise the lobby's
-// registry-driven plumbing end to end: route validation, quick-play
-// group-size math (still the point of the group-size assertion below — a
-// 4-seat game must not match at 3, the case doudizhu's hardcoded seat count
-// would have gotten wrong), and that the matched group can actually connect
-// to a live table. Full gameplay (ready-up, play/challenge, settlement,
-// abort, reconnection) is covered separately in test/liarsbar-table.test.ts.
-describe("quick play — liarsbar (registry-driven seat count)", () => {
+// Liar's Bar (minSeats 2, maxSeats 4) is registered in worker/src/registry.ts
+// and backed by the real LiarsBarTableDO (durable-objects/liarsbar-table.ts)
+// and the real "liarsbar" engine package. minSeats !== maxSeats, so
+// LobbyDO.quickPlay routes it through quickPlayVariableSeat's join-or-create
+// path (same family as poker) instead of the fixed-N queue doudizhu uses.
+// Full gameplay (ready-up, play/challenge, settlement, abort, reconnection)
+// is covered separately in test/liarsbar-table.test.ts.
+describe("quick play — liarsbar (variable-seat join-or-create)", () => {
   const LIARSBAR_ID = "liarsbar";
 
   it("is a known game: lobby routes accept it instead of 404ing", async () => {
@@ -308,7 +306,7 @@ describe("quick play — liarsbar (registry-driven seat count)", () => {
     expect((await listOpenParties(LIARSBAR_ID, user.cookie)).status).toBe(200);
   });
 
-  it("matches exactly 4 distinct users (the registry's maxSeats), not 3, and spawns a table all 4 can connect to", async () => {
+  it("never queues: the first caller creates a table, the next 3 join it up to maxSeats, and all 4 can connect", async () => {
     const [p1, p2, p3, p4] = await Promise.all([
       registerUser("lb1"),
       registerUser("lb2"),
@@ -316,22 +314,14 @@ describe("quick play — liarsbar (registry-driven seat count)", () => {
       registerUser("lb4"),
     ]);
 
-    for (const p of [p1, p2, p3]) {
-      const res = await quickPlay(LIARSBAR_ID, p.cookie);
-      expect(res.status).toBe(200);
-      // A 4-seat game must not match at 3 — this is the case doudizhu's
-      // hardcoded seat count would have gotten wrong.
-      expect((await res.json<{ status: string }>()).status).toBe("queued");
-    }
+    const firstRes = await quickPlay(LIARSBAR_ID, p1.cookie);
+    expect(firstRes.status).toBe(200);
+    const firstBody = await firstRes.json<{ status: string; tableId?: string }>();
+    expect(firstBody.status).toBe("matched");
+    expect(firstBody.tableId).toBeTruthy();
+    const tableId = firstBody.tableId!;
 
-    const fourthRes = await quickPlay(LIARSBAR_ID, p4.cookie);
-    expect(fourthRes.status).toBe(200);
-    const fourthBody = await fourthRes.json<{ status: string; tableId?: string }>();
-    expect(fourthBody.status).toBe("matched");
-    expect(fourthBody.tableId).toBeTruthy();
-    const tableId = fourthBody.tableId!;
-
-    for (const p of [p1, p2, p3]) {
+    for (const p of [p2, p3, p4]) {
       const poll = await (await quickPlay(LIARSBAR_ID, p.cookie)).json<{
         status: string;
         tableId?: string;
@@ -356,6 +346,16 @@ describe("quick play — liarsbar (registry-driven seat count)", () => {
       ws.accept();
       ws.close();
     }
+
+    // Table is at maxSeats (4) — a fifth caller overflows into a fresh table.
+    const fifth = await registerUser("lb5");
+    const fifthBody = await (await quickPlay(LIARSBAR_ID, fifth.cookie)).json<{
+      status: string;
+      tableId?: string;
+    }>();
+    expect(fifthBody.status).toBe("matched");
+    expect(fifthBody.tableId).toBeTruthy();
+    expect(fifthBody.tableId).not.toBe(tableId);
   });
 });
 

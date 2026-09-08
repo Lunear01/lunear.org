@@ -20,7 +20,8 @@ import { useLiarsBarSocket } from "../ws/useLiarsBarSocket";
 // is hardcoded rather than derived (mirrors Table.tsx's DOUDIZHU_LOBBY_PATH).
 const LIARSBAR_LOBBY_PATH = "/lobby/liarsbar";
 
-const SEATS: readonly Seat[] = [0, 1, 2, 3];
+// Mirrors the registry's minSeats — a match starts once this many are seated and ready.
+const MIN_PLAYERS = 2;
 const CHAMBERS = 6;
 const MAX_PLAY = 3;
 
@@ -126,9 +127,11 @@ export default function LiarsBarTable() {
   // An aborted table never resumes — ready-up is refused server-side too,
   // but hiding it here avoids a pointless round trip.
   const canReadyUp =
-    !aborted && seats !== null && seats.length === SEATS.length && (view === null || view.phase === "finished");
+    !aborted && seats !== null && seats.length >= MIN_PLAYERS && (view === null || view.phase === "finished");
 
   const myStatus: PublicPlayerStatus | null = view && mySeat !== null ? view.players[mySeat] : null;
+  // False for a player who took a free seat mid-match — they wait out this game.
+  const myInGame = view !== null && mySeat !== null && view.activeSeats.includes(mySeat);
 
   const finishedView = view?.phase === "finished" ? view : null;
   const roundEndView = view?.phase === "roundEnd" ? view : null;
@@ -184,10 +187,15 @@ export default function LiarsBarTable() {
 
         {view && "hand" in view && (
           <>
-            {myStatus && (
+            {myStatus && myInGame && (
               <div className="lb-self-status">
                 <ChamberDots pulls={myStatus.pulls} />
                 {!myStatus.alive && <span>You&rsquo;re eliminated — spectating</span>}
+              </div>
+            )}
+            {!myInGame && (
+              <div className="lb-self-status">
+                <span>Hand in progress — you join the next game</span>
               </div>
             )}
             <div className="table-hand">
@@ -251,7 +259,7 @@ export default function LiarsBarTable() {
               {seatLabel(seats, finishedView.winner)} wins the pot
             </h2>
             <ul>
-              {SEATS.map((seat) => (
+              {finishedView.activeSeats.map((seat) => (
                 <li key={seat}>
                   {seatLabel(seats, seat)}: {formatDelta(settled.deltas[seat])}
                 </li>
@@ -304,8 +312,11 @@ function LiarsBarOpponentSeat({
   view: RedactedView | null;
 }) {
   const row = seats?.find((s) => s.seat === seat);
-  const count = view && "handCounts" in view ? view.handCounts[seat] : null;
-  const player = view ? view.players[seat] : null;
+  // A seat outside the running game's activeSeats is empty or a next-game
+  // bystander — never a corpse, so no skull/chambers for it.
+  const inGame = view === null || view.activeSeats.includes(seat);
+  const count = view && inGame && "handCounts" in view ? view.handCounts[seat] : null;
+  const player = view && inGame ? view.players[seat] : null;
   const isDead = player !== null && !player.alive;
   const isTurn = view?.phase === "playing" && view.currentTurn === seat;
 
@@ -334,6 +345,9 @@ function LiarsBarOpponentSeat({
         {count !== null && !isDead && <span className="table-opponent__count">({count})</span>}
         {isTurn && <span title="Current turn">🎯</span>}
         {row?.ready && !view && <span className="ready-badge">Ready</span>}
+        {view !== null && !inGame && row?.userId != null && (
+          <span className="table-opponent__count">next game</span>
+        )}
       </div>
       {player !== null && <ChamberDots pulls={player.pulls} />}
     </div>
@@ -343,10 +357,10 @@ function LiarsBarOpponentSeat({
 function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; view: RedactedView | null }) {
   if (!view) {
     const filled = seats?.length ?? 0;
-    if (filled < SEATS.length) {
-      return <p className="table-center__hint">Waiting for players ({filled}/4 seated)…</p>;
+    if (filled < MIN_PLAYERS) {
+      return <p className="table-center__hint">Waiting for players ({filled}/4 seated, 2 needed)…</p>;
     }
-    return <p className="table-center__hint">All seats filled — ready up to start.</p>;
+    return <p className="table-center__hint">{filled}/4 seated — everyone ready starts the game.</p>;
   }
 
   switch (view.phase) {
