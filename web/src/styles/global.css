@@ -2051,6 +2051,7 @@ a {
   .pk-seat--winner,
   .pk-seat--turn,
   .pk-self__cards,
+  .bj-result,
   .flip__inner {
     animation: none !important;
     transition: none !important;
@@ -2061,9 +2062,10 @@ a {
    Reuses the poker section's chrome verbatim — .pk-seat* (seat boxes, turn/
    winner glows, badges, delta chips), .pk-center (the dealer's cloth patch),
    .pk-board (dealer card sizing), .pk-reveal__cards (seat card rows),
-   .pk-self/.pk-actionbar/.pk-nexthand, and the shared .flip* mechanics.
-   Only the layout (dealer on top, one seat grid below — no flanking columns)
-   and two badge colors are new. */
+   .pk-self/.pk-actionbar, and the shared .flip* mechanics. No .pk-nexthand
+   popup: results show inline (.bj-result) so the dealer reveal stays visible
+   until the auto-deal. Only the layout (dealer on top, one seat grid below —
+   no flanking columns), the result strip, and two badge colors are new. */
 
 .bj-felt {
   flex: 1;
@@ -2097,4 +2099,22 @@ a {
 .bj-badge--doubled {
   background: rgba(217, 164, 65, 0.25);
   color: var(--color-gold-light);
+}
+
+/* Inline own-result strip in the self panel, remounted per settlement via
+   key={settled.handNo}; stays until the next deal clears it. */
+.bj-result {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--color-muted);
+  animation: pk-dealin 0.35s ease-out;
+}
+
+.bj-result--gain {
+  color: var(--color-gold-light);
+}
+
+.bj-result--loss {
+  color: var(--color-danger);
 }

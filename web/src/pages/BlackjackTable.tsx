@@ -78,7 +78,8 @@ export default function BlackjackTable() {
     useBlackjackSocket(tableId);
   const reducedMotion = usePrefersReducedMotion();
 
-  // Ticks while a "next round in Ns" countdown is live — same rationale as PokerTable's timer.
+  // Ticks while the auto-deal countdown is live. No timer is shown; the
+  // countdown window still gates the delta chips, winner glow, and ready-up.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (nextHand === null) return;
@@ -88,7 +89,6 @@ export default function BlackjackTable() {
 
   const countdownMsLeft = nextHand !== null ? nextHand - now : null;
   const countdownActive = countdownMsLeft !== null && countdownMsLeft > -NEXT_HAND_GRACE_MS;
-  const countdownSeconds = countdownMsLeft !== null ? Math.max(0, Math.ceil(countdownMsLeft / 1000)) : 0;
 
   const mySeat = useMemo<Seat | null>(() => {
     if (view) return view.viewer;
@@ -124,6 +124,11 @@ export default function BlackjackTable() {
     mySeat !== null && !countdownActive && (view === null || view.phase === "finished");
 
   const isMyTurn = view?.phase === "acting" && view.currentTurn === mySeat && myHand !== null && !myHand.done;
+
+  // Own settled result, shown inline in the self panel until the next deal
+  // clears `settled` (see useBlackjackSocket's handNo keying).
+  const myOutcome = view?.phase === "finished" && mySeat !== null ? view.outcomes[mySeat] : undefined;
+  const myDelta = settled !== null && mySeat !== null ? settled.deltas[mySeat] : undefined;
 
   const handleLeaveTable = () => {
     send({ type: "leave" });
@@ -211,6 +216,17 @@ export default function BlackjackTable() {
       </div>
 
       <div className="pk-self">
+        {settled && myOutcome !== undefined && myDelta !== undefined && (
+          <p
+            key={settled.handNo}
+            className={`bj-result ${myDelta > 0 ? "bj-result--gain" : myDelta < 0 ? "bj-result--loss" : ""}`}
+            role="status"
+          >
+            {OUTCOME_LABEL[myOutcome]}
+            {myDelta !== 0 ? ` ${formatDelta(myDelta)}` : ""}
+            {settled.newBalance !== undefined ? ` · Balance ${settled.newBalance.toLocaleString()}` : ""}
+          </p>
+        )}
         {myHand && (
           <p className="pk-self__committed">
             Your hand: {totalLabel(myHand)} &middot; Bet {myHand.bet.toLocaleString()}
@@ -255,16 +271,6 @@ export default function BlackjackTable() {
           )}
         </div>
       </div>
-
-      {settled && countdownActive && view?.phase === "finished" && (
-        <NextRoundBanner
-          view={view}
-          settled={settled}
-          mySeat={mySeat}
-          secondsLeft={countdownSeconds}
-          onExit={handleExitToLobby}
-        />
-      )}
     </div>
   );
 }
@@ -285,7 +291,7 @@ function BjSeat({
   seatLabel: (seat: Seat) => string;
   /** Null outside the post-round results phase — see BlackjackTable's own `settled`. */
   settled: SettledMessage | null;
-  /** True only while the auto-deal countdown banner is showing. */
+  /** True only during the between-rounds auto-deal window. */
   countdownActive: boolean;
 }) {
   const row = seats.find((s) => s.seat === seat);
@@ -473,48 +479,6 @@ function FlipInCard({ card, delayMs }: { card: Card; delayMs: number }) {
           <PokerCard card={card} />
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Non-blocking post-round panel with the dealer result, this seat's own
- * outcome, and the auto-deal countdown — the felt stays visible so the
- * per-seat delta chips can play underneath (mirrors poker's NextHandBanner). */
-function NextRoundBanner({
-  view,
-  settled,
-  mySeat,
-  secondsLeft,
-  onExit,
-}: {
-  view: Extract<RedactedView, { phase: "finished" }>;
-  settled: SettledMessage;
-  mySeat: Seat | null;
-  secondsLeft: number;
-  onExit: () => void;
-}) {
-  const myOutcome = mySeat !== null ? view.outcomes[mySeat] : undefined;
-  const myDelta = mySeat !== null ? settled.deltas[mySeat] : undefined;
-  const headline = view.dealerBusted ? `Dealer busts (${view.dealerTotal})` : `Dealer stands on ${view.dealerTotal}`;
-
-  return (
-    <div className="pk-nexthand" role="status">
-      <p className="pk-nexthand__winner">{headline}</p>
-      {myOutcome !== undefined && myDelta !== undefined && (
-        <p className="pk-nexthand__timer">
-          {OUTCOME_LABEL[myOutcome]}
-          {myDelta !== 0 ? ` (${formatDelta(myDelta)})` : ""}
-        </p>
-      )}
-      <p className="pk-nexthand__timer">
-        {secondsLeft > 0 ? `Next round in ${secondsLeft}s` : "Dealing next round…"}
-      </p>
-      {settled.newBalance !== undefined && (
-        <p className="pk-nexthand__balance">Your balance: {settled.newBalance.toLocaleString()}</p>
-      )}
-      <button type="button" className="button button--ghost" onClick={onExit}>
-        Exit to lobby
-      </button>
     </div>
   );
 }
