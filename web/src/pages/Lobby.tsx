@@ -205,7 +205,11 @@ export default function Lobby() {
 
         <section className="card lobby-panel">
           <h2 className="lobby-panel__title">Create game</h2>
-          <p className="lobby-panel__desc">Set a stake and start a private or public table.</p>
+          <p className="lobby-panel__desc">
+            {gameId === "blackjack"
+              ? "Set the minimum bet and start a private or public table."
+              : "Set a stake and start a private or public table."}
+          </p>
 
           {created ? (
             <>
@@ -361,7 +365,7 @@ function CreateGameDialog({
         </h2>
 
         <label className="field">
-          <span className="field__label">Stake</span>
+          <span className="field__label">{gameId === "blackjack" ? "Minimum bet" : "Stake"}</span>
           <input
             className="field__input"
             type="number"

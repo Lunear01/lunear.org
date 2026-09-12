@@ -19,6 +19,7 @@ export type {
   Card,
   Outcome,
   PublicHandStatus,
+  PublicPlayerStatus,
   RedactedActingView,
   RedactedFinishedView,
   RedactedView,

@@ -2118,3 +2118,42 @@ a {
 .bj-result--loss {
   color: var(--color-danger);
 }
+
+/* One block per wagered hand; two after a split. The active one carries the
+   turn outline so a split seat shows which hand is deciding. */
+.bj-hand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.bj-hand--active {
+  border-color: var(--color-gold);
+}
+
+.bj-badge--bet {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-muted);
+}
+
+/* Between-rounds bet entry in the self panel: label, stepper, input, stepper. */
+.bj-bet {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.bj-bet__label {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.bj-bet__input {
+  width: 6.5rem;
+  text-align: center;
+}

@@ -2,7 +2,7 @@
 // over a single WebSocket. Imported by the client (web/) for typed messages,
 // and by the DO itself so both sides share one definition. Mirrors
 // poker-protocol.ts's shape and conventions, adapted to blackjack's action
-// set (hit/stand/double instead of fold/check/call/bet/raise) and the same
+// set (hit/stand/double/split plus a between-rounds bet) and the same
 // drop-in room model: no 'aborted' message — a leave or an expired disconnect
 // only ever auto-STANDS that one seat (their bet still plays out — see
 // BlackjackTableDO's file header), so a client only ever renders 'state' and
@@ -18,7 +18,13 @@ export type ClientMessage =
   | { readonly type: "hit" }
   | { readonly type: "stand" }
   | { readonly type: "double" }
+  | { readonly type: "split" }
+  /** Sets this seat's bet for the next round. Between rounds only; must be an integer >= the table stake. */
+  | { readonly type: "bet"; readonly amount: number }
   | { readonly type: "leave" };
+
+/** Upper bound on any single bet, before the DO checks it against the stake. */
+export const MAX_BET = 1_000_000;
 
 /**
  * Runtime-validates an arbitrary decoded JSON payload into a ClientMessage.
@@ -38,6 +44,13 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return { type: "stand" };
     case "double":
       return { type: "double" };
+    case "split":
+      return { type: "split" };
+    case "bet": {
+      const amount = obj.amount;
+      if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 1 || amount > MAX_BET) return null;
+      return { type: "bet", amount };
+    }
     case "leave":
       return { type: "leave" };
     default:
@@ -53,6 +66,8 @@ export interface SeatStatus {
   readonly username: string | null;
   readonly connected: boolean;
   readonly ready: boolean;
+  /** Bet this seat wagers on the next deal — the table stake until the occupant changes it. 0 for an empty seat. */
+  readonly bet: number;
   /**
    * True once this seat is committed to leaving (a deliberate {type:'leave'}
    * message, or a disconnect whose 30s reconnect grace has expired) but is
@@ -74,6 +89,8 @@ export interface StateMessage {
   readonly type: "state";
   /** Increments each time a fresh round (ready-up -> deal) starts on this table. */
   readonly handNo: number;
+  /** Table minimum bet; the client's bet control clamps to it. */
+  readonly stake: number;
   /** Always exactly 5 entries (seats 0-4), occupied or not — blackjack's
    * seating is a drop-in 1-5 capacity table, so the client needs the full
    * layout to render open seats. */
@@ -89,7 +106,7 @@ export interface StateMessage {
   readonly view: RedactedView | null;
 }
 
-export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | RejectionReason;
+export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | "invalid-bet" | RejectionReason;
 
 export interface ErrorMessage {
   readonly type: "error";

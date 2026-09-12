@@ -20,9 +20,10 @@ describe("viewFor while acting", () => {
     expect(view.dealerUpCard.id.startsWith("Kd")).toBe(true);
     expect("dealerCards" in view).toBe(false);
     expect("shoe" in view).toBe(false);
-    expect(labelsOf(view.players[0].cards)).toEqual(["Ac", "6c"]);
-    expect(view.players[0]).toMatchObject({ total: 17, soft: true, busted: false, natural: false });
-    expect(view.players[2]).toMatchObject({ total: 19, soft: false, done: false, bet: 100 });
+    expect(labelsOf(view.players[0].hands[0].cards)).toEqual(["Ac", "6c"]);
+    expect(view.players[0].hands[0]).toMatchObject({ total: 17, soft: true, busted: false, natural: false });
+    expect(view.players[2].hands[0]).toMatchObject({ total: 19, soft: false, done: false, bet: 100 });
+    expect(view.players[2]).toMatchObject({ activeHand: 0, canSplit: false, totalBet: 100 });
   });
 
   it("never throws for a viewer seat not dealt into the round", () => {
@@ -43,8 +44,8 @@ describe("viewFor when finished", () => {
     if (view.phase !== "finished") throw new Error("expected finished view");
     expect(view.dealerTotal).toBe(17); // Kd + 7d
     expect(view.dealerBusted).toBe(false);
-    expect(view.outcomes[0]).toBe("push"); // soft 17 vs 17
-    expect(view.outcomes[2]).toBe("win"); // 19 vs 17
+    expect(view.outcomes[0]).toEqual(["push"]); // soft 17 vs 17
+    expect(view.outcomes[2]).toEqual(["win"]); // 19 vs 17
     expect(labelsOf(view.dealerCards)).toEqual(["Kd", "7d"]);
   });
 });

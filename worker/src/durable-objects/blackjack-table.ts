@@ -50,6 +50,9 @@ export type { InitResult, TableInitParams };
 //    but the wire field keeps poker's name so the client hooks stay parallel).
 //  - Settlement deltas are against the house, not zero-sum — the ledger
 //    records per-user deltas only, so nothing needs a counterparty row.
+//  - The stake is the table's minimum bet. Each seat row remembers its own
+//    bet (set by a 'bet' message between rounds, stake by default) and the
+//    auto-deal alarm reuses it.
 
 const MIN_SEATS_TO_START = 1;
 const MAX_SEATS = 5;
@@ -98,6 +101,8 @@ interface SeatRow {
   leavePending: 0 | 1;
   /** Cached D1 users.credits — see refreshSeatCredits() for when this is refreshed. */
   credits: number;
+  /** Next round's bet; set to the stake on seating, changed by a 'bet' message between rounds. */
+  bet: number;
 }
 
 interface GameStateRow {
@@ -134,7 +139,9 @@ function buildResultSummary(
   return {
     dealerCards: state.dealerCards,
     outcomes: state.outcomes,
-    hands: Object.fromEntries(state.seats.map((s) => [s, { cards: state.players[s].cards, bet: state.players[s].bet }])),
+    hands: Object.fromEntries(
+      state.seats.map((s) => [s, state.players[s].hands.map((h) => ({ cards: h.cards, bet: h.bet }))]),
+    ),
     deltas,
     seats,
   };
@@ -171,9 +178,18 @@ export class BlackjackTableDO extends DurableObject<Env> {
         username TEXT NOT NULL,
         ready INTEGER NOT NULL DEFAULT 0,
         leave_pending INTEGER NOT NULL DEFAULT 0,
-        credits INTEGER NOT NULL DEFAULT 0
+        credits INTEGER NOT NULL DEFAULT 0,
+        bet INTEGER NOT NULL DEFAULT 0
       )
     `);
+    // Tables created before per-seat bets lack the column; CREATE IF NOT EXISTS won't add it.
+    const seatColumns = this.ctx.storage.sql
+      .exec<{ name: string }>("PRAGMA table_info(seats)")
+      .toArray()
+      .map((c) => c.name);
+    if (!seatColumns.includes("bet")) {
+      this.ctx.storage.sql.exec("ALTER TABLE seats ADD COLUMN bet INTEGER NOT NULL DEFAULT 0");
+    }
     // The terminal (finished) state stays in place after settlement so a
     // between-rounds broadcast keeps showing the last round's outcome and
     // forceSettle() can re-examine it — same as the other table DOs.
@@ -319,10 +335,11 @@ export class BlackjackTableDO extends DurableObject<Env> {
       if (free === undefined) return new Response("table is full", { status: 409 });
       seat = free;
       this.ctx.storage.sql.exec(
-        "INSERT INTO seats (seat, user_id, username, ready, leave_pending) VALUES (?, ?, ?, 0, 0)",
+        "INSERT INTO seats (seat, user_id, username, ready, leave_pending, bet) VALUES (?, ?, ?, 0, 0, ?)",
         seat,
         userId,
         username,
+        meta.stake,
       );
       this.ctx.storage.sql.exec("UPDATE table_meta SET ever_seated = 1 WHERE id = 1");
     }
@@ -387,6 +404,11 @@ export class BlackjackTableDO extends DurableObject<Env> {
 
       if (parsed.type === "ready") {
         await this.handleReady(seat);
+        return;
+      }
+
+      if (parsed.type === "bet") {
+        this.handleBet(ws, seat, parsed.amount);
         return;
       }
 
@@ -457,6 +479,22 @@ export class BlackjackTableDO extends DurableObject<Env> {
     } else {
       this.broadcastState();
     }
+  }
+
+  /** Between rounds only. The stake is the floor; MAX_BET (protocol-level) the ceiling. */
+  private handleBet(ws: WebSocket, seat: Seat, amount: number): void {
+    if (this.isHandActive()) {
+      this.sendErrorToWs(ws, "game-in-progress", "bets change between rounds only");
+      return;
+    }
+    const meta = this.loadMetaRow();
+    if (!meta) return;
+    if (amount < meta.stake) {
+      this.sendErrorToWs(ws, "invalid-bet", `the minimum bet at this table is ${meta.stake}`);
+      return;
+    }
+    this.ctx.storage.sql.exec("UPDATE seats SET bet = ? WHERE seat = ?", amount, seat);
+    this.broadcastState();
   }
 
   /**
@@ -535,8 +573,10 @@ export class BlackjackTableDO extends DurableObject<Env> {
 
     const seatRows = this.loadSeats();
     const seats = dealtInSeats ?? seatRows.map((s) => s.seat);
+    // A 0 bet is a pre-migration row; the stake is the floor either way.
+    const bets = Object.fromEntries(seatRows.map((s) => [s.seat, Math.max(s.bet, meta.stake)]));
     const shoe = this.drawRoundShoe();
-    const state = createGame({ seats, stake: meta.stake, shuffledShoe: shoe });
+    const state = createGame({ seats, stake: meta.stake, bets, shuffledShoe: shoe });
 
     const handNo = meta.handNo + 1;
     this.ctx.storage.sql.exec("UPDATE table_meta SET hand_no = ?, next_hand_at = NULL WHERE id = 1", handNo);
@@ -803,6 +843,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
         username: row?.username ?? null,
         connected: this.ctx.getWebSockets(`seat:${seat}`).length > 0,
         ready: row?.ready === 1,
+        bet: row ? Math.max(row.bet, meta.stake) : 0,
         leavePending: row?.leavePending === 1,
         credits: row?.credits ?? 0,
       };
@@ -814,6 +855,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
       const msg: StateMessage = {
         type: "state",
         handNo: meta.handNo,
+        stake: meta.stake,
         seats: seatStatuses,
         // viewFor is safe for any seat, dealt in or not (all hands are
         // public), so a skipped occupant spectates the live round instead of
@@ -904,7 +946,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
   private loadSeats(): SeatRow[] {
     return this.ctx.storage.sql
       .exec<SeatRow>(
-        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits FROM seats ORDER BY seat",
+        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits, bet FROM seats ORDER BY seat",
       )
       .toArray();
   }
@@ -958,7 +1000,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
   }
 }
 
-function toEngineAction(msg: Exclude<ClientMessage, { type: "ready" } | { type: "leave" }>): Action {
+function toEngineAction(msg: Exclude<ClientMessage, { type: "ready" } | { type: "leave" } | { type: "bet" }>): Action {
   switch (msg.type) {
     case "hit":
       return { type: "hit" };
@@ -966,5 +1008,7 @@ function toEngineAction(msg: Exclude<ClientMessage, { type: "ready" } | { type: 
       return { type: "stand" };
     case "double":
       return { type: "double" };
+    case "split":
+      return { type: "split" };
   }
 }

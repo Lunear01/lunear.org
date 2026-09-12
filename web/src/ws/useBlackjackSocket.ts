@@ -15,6 +15,8 @@ export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed"
 interface BlackjackSocketState {
   status: ConnectionStatus;
   handNo: number;
+  /** Table minimum bet, from the latest 'state' frame; 1 until the first frame lands. */
+  stake: number;
   seats: readonly SeatStatus[] | null;
   view: RedactedView | null;
   error: ErrorMessage | null;
@@ -36,6 +38,7 @@ type Action =
 const initialState: BlackjackSocketState = {
   status: "connecting",
   handNo: 0,
+  stake: 1,
   seats: null,
   view: null,
   error: null,
@@ -62,7 +65,16 @@ function reducer(state: BlackjackSocketState, action: Action): BlackjackSocketSt
           // means it's done showing — keyed on handNo, like the other games.
           const settled = state.settled && msg.handNo !== state.settled.handNo ? null : state.settled;
           const nextHand = msg.handNo !== state.handNo ? null : state.nextHand;
-          return { ...state, handNo: msg.handNo, seats: msg.seats, view: msg.view, settled, nextHand, usernames };
+          return {
+            ...state,
+            handNo: msg.handNo,
+            stake: msg.stake,
+            seats: msg.seats,
+            view: msg.view,
+            settled,
+            nextHand,
+            usernames,
+          };
         }
         case "error":
           return { ...state, error: msg };

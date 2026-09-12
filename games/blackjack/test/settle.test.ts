@@ -30,7 +30,7 @@ function playedOut(stake: number): FinishedState {
 describe("settle", () => {
   it("pays each outcome against the house", () => {
     const end = playedOut(100);
-    expect(end.outcomes).toEqual({ 0: "blackjack", 1: "win", 2: "lose", 3: "push", 4: "lose" });
+    expect(end.outcomes).toEqual({ 0: ["blackjack"], 1: ["win"], 2: ["lose"], 3: ["push"], 4: ["lose"] });
     expect(settle(end)).toEqual({ 0: 150, 1: 200, 2: -100, 3: 0, 4: -100 });
   });
 

@@ -210,8 +210,9 @@ function expectedDeltasFromReplay(
   stake: number,
   shoe: Card[],
   steps: ReadonlyArray<readonly [Seat, Action]>,
+  bets?: Readonly<Partial<Record<Seat, number>>>,
 ): Readonly<Record<Seat, number>> {
-  let state: GameState = createGame({ seats, stake, shuffledShoe: shoe });
+  let state: GameState = createGame({ seats, stake, bets, shuffledShoe: shoe });
   for (const [seat, action] of steps) {
     const result = applyAction(state, seat, action);
     if (!result.ok) {
@@ -246,7 +247,7 @@ describe("BlackjackTableDO — solo scripted round", () => {
     // hole card (3d) must not appear anywhere while the up card (2d) does.
     expect(acting.currentTurn).toBe(0);
     expect(acting.dealerUpCard.id.startsWith("2d#")).toBe(true);
-    expect(acting.players[0]).toMatchObject({ total: 11, bet: STAKE, done: false });
+    expect(acting.players[0].hands[0]).toMatchObject({ total: 11, bet: STAKE, done: false });
     for (let i = 0; i < socket.messages.length; i++) {
       if (actingView(socket.messages[i]) !== null) expect(socket.raw[i]).not.toContain('"3d#');
     }
@@ -269,7 +270,7 @@ describe("BlackjackTableDO — solo scripted round", () => {
     const fv = finishedView(await socket.nextFrameMatching((m) => finishedView(m) !== null))!;
     expect(fv.dealerTotal).toBe(20);
     expect(fv.dealerCards.some((c) => c.id.startsWith("3d#"))).toBe(true); // hole card revealed
-    expect(fv.outcomes[0]).toBe("win");
+    expect(fv.outcomes[0]).toEqual(["win"]);
 
     const ledger = await ledgerRowsForRound(tableId, 1);
     expect(ledger.results).toHaveLength(1);
@@ -317,7 +318,7 @@ describe("BlackjackTableDO — two seats, natural pays 3:2, not zero-sum", () =>
     // The natural seat is done at the deal — the first turn is seat1's.
     const acting = actingView(await sockets[0].nextFrameMatching((m) => actingView(m) !== null))!;
     expect(acting.currentTurn).toBe(1);
-    expect(acting.players[0]).toMatchObject({ natural: true, done: true });
+    expect(acting.players[0].hands[0]).toMatchObject({ natural: true, done: true });
 
     send(sockets[1], { type: "stand" });
     const settled = (await sockets[0].nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
@@ -361,7 +362,7 @@ describe("BlackjackTableDO — dealer natural ends the round with no player acti
 
     const fv = finishedView(await socket.nextFrameMatching((m) => finishedView(m) !== null))!;
     expect(fv.dealerCards).toHaveLength(2);
-    expect(fv.outcomes[0]).toBe("lose");
+    expect(fv.outcomes[0]).toEqual(["lose"]);
 
     // The auto-deal alarm keeps a solo connected player going: round 2 deals
     // (or, with a random shoe, may even settle instantly again) — either way
@@ -401,7 +402,7 @@ describe("BlackjackTableDO — mid-round leave auto-stands, bet stays live", () 
     send(sockets[1], { type: "leave" });
     const pendingFrame = await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats[1]?.leavePending === true);
     expect(actingView(pendingFrame)?.currentTurn).toBe(0);
-    expect(actingView(pendingFrame)?.players[1].done).toBe(false);
+    expect(actingView(pendingFrame)?.players[1].hands[0].done).toBe(false);
 
     // Seat0 stands; the cascade auto-stands seat1 and the dealer resolves.
     send(sockets[0], { type: "stand" });
@@ -420,6 +421,66 @@ describe("BlackjackTableDO — mid-round leave auto-stands, bet stays live", () 
     expect(asStateMessage(afterSettle)!.seats[1]).toMatchObject({ userId: null, leavePending: false });
 
     sockets[0].ws.close();
+  });
+});
+
+describe("BlackjackTableDO — per-seat bet and split", () => {
+  it("wagers the seat's chosen bet, refuses one below the stake, remembers it across the auto-deal, and pays both split hands", async () => {
+    const tableId = `bj-bet-${crypto.randomUUID().slice(0, 8)}`;
+    const host = await registerUser("bjbhost");
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
+    // 8c+8d splits into 8c+3h (hits Th -> 21) and 8d+2h (hits 9h -> 19); dealer stands on 17.
+    const shoe = buildShoe([[0, "8c", "8d"]], ["Ts", "7s"], ["3h", "2h", "Th", "9h"]);
+    await stub.setTestFixedDeal({ shuffledShoe: shoe });
+
+    const before = await creditsOf(host.id);
+    const socket = await openTableSocket(tableId, host.cookie);
+    await socket.nextFrameMatching((m) => asStateMessage(m)?.seats[0]?.bet === STAKE);
+
+    send(socket, { type: "bet", amount: STAKE - 1 });
+    const refused = await socket.nextFrameMatching((m) => m.type === "error");
+    expect(refused).toMatchObject({ type: "error", code: "invalid-bet" });
+
+    const bet = 3 * STAKE;
+    send(socket, { type: "bet", amount: bet });
+    await socket.nextFrameMatching((m) => asStateMessage(m)?.seats[0]?.bet === bet);
+    send(socket, { type: "ready" });
+    const acting = actingView(await socket.nextFrameMatching((m) => actingView(m) !== null))!;
+    expect(acting.players[0]).toMatchObject({ canSplit: true, totalBet: bet });
+
+    send(socket, { type: "split" });
+    await socket.nextFrameMatching((m) => actingView(m)?.players[0].hands.length === 2);
+    send(socket, { type: "hit" });
+    await socket.nextFrameMatching((m) => actingView(m)?.players[0].activeHand === 1);
+    send(socket, { type: "hit" });
+    await socket.nextFrameMatching((m) => actingView(m)?.players[0].hands[1].total === 19);
+    send(socket, { type: "stand" });
+    const settled = (await socket.nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
+
+    const expected = expectedDeltasFromReplay([0], STAKE, shoe, [
+      [0, { type: "split" }],
+      [0, { type: "hit" }],
+      [0, { type: "hit" }],
+      [0, { type: "stand" }],
+    ], { 0: bet });
+    expect(expected).toEqual({ 0: 2 * bet });
+    expect(settled.deltas).toEqual(expected);
+    expect(await creditsOf(host.id)).toBe(before + 2 * bet);
+
+    // A bet can't change mid-round, and the chosen bet survives into the auto-dealt next round.
+    const fv = finishedView(await socket.nextFrameMatching((m) => finishedView(m) !== null))!;
+    expect(fv.outcomes[0]).toEqual(["win", "win"]);
+    await stub.setTestFixedDeal({ shuffledShoe: buildShoe([[0, "Tc", "9c"]], ["Td", "7d"]) });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    const next = actingView(await socket.nextFrameMatching((m) => asStateMessage(m)?.handNo === 2 && actingView(m) !== null))!;
+    expect(next.players[0].hands[0].bet).toBe(bet);
+    send(socket, { type: "bet", amount: STAKE });
+    const midRound = await socket.nextFrameMatching((m) => m.type === "error");
+    expect(midRound).toMatchObject({ code: "game-in-progress" });
+
+    socket.ws.close();
   });
 });
 

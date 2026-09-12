@@ -34,13 +34,13 @@ describe("the deal", () => {
     });
     const state = acting(createGame({ seats: [4, 1, 3], stake: 100, shuffledShoe: shoe }));
     expect(state.seats).toEqual([1, 3, 4]);
-    expect(labelsOf(state.players[1].cards)).toEqual(["2c", "3c"]);
-    expect(labelsOf(state.players[3].cards)).toEqual(["4c", "5c"]);
-    expect(labelsOf(state.players[4].cards)).toEqual(["6c", "7c"]);
+    expect(labelsOf(state.players[1].hands[0].cards)).toEqual(["2c", "3c"]);
+    expect(labelsOf(state.players[3].hands[0].cards)).toEqual(["4c", "5c"]);
+    expect(labelsOf(state.players[4].hands[0].cards)).toEqual(["6c", "7c"]);
     expect(labelsOf(state.dealerCards)).toEqual(["8c", "9c"]);
     expect(state.toAct).toEqual([1, 3, 4]);
     expect(state.currentTurn).toBe(1);
-    expect(state.players[1].bet).toBe(100);
+    expect(state.players[1].hands[0].bet).toBe(100);
   });
 
   it("a seat dealt a natural is done up front and skipped in toAct", () => {
@@ -49,7 +49,7 @@ describe("the deal", () => {
       dealer: ["7c", "8c"],
     });
     const state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
-    expect(state.players[0].done).toBe(true);
+    expect(state.players[0].hands[0].done).toBe(true);
     expect(state.toAct).toEqual([1]);
     expect(state.currentTurn).toBe(1);
   });
@@ -60,8 +60,8 @@ describe("the deal", () => {
       dealer: ["Ad", "Qd"],
     });
     const state = finished(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
-    expect(state.outcomes[0]).toBe("push");
-    expect(state.outcomes[1]).toBe("lose");
+    expect(state.outcomes[0][0]).toBe("push");
+    expect(state.outcomes[1][0]).toBe("lose");
     expect(state.dealerCards).toHaveLength(2);
   });
 
@@ -71,7 +71,7 @@ describe("the deal", () => {
       dealer: ["6d", "Td"],
     });
     const state = finished(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
-    expect(state.outcomes[0]).toBe("blackjack");
+    expect(state.outcomes[0][0]).toBe("blackjack");
     expect(state.dealerCards).toHaveLength(2);
   });
 });
@@ -85,10 +85,10 @@ describe("player actions", () => {
     });
     let state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
     state = acting(act(state, 0, { type: "hit" }));
-    expect(labelsOf(state.players[0].cards)).toEqual(["2c", "3c", "4d"]);
+    expect(labelsOf(state.players[0].hands[0].cards)).toEqual(["2c", "3c", "4d"]);
     expect(state.currentTurn).toBe(0);
     state = acting(act(state, 0, { type: "stand" }));
-    expect(state.players[0].done).toBe(true);
+    expect(state.players[0].hands[0].done).toBe(true);
     expect(state.currentTurn).toBe(1);
   });
 
@@ -100,8 +100,8 @@ describe("player actions", () => {
     });
     let state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
     state = acting(act(state, 0, { type: "hit" }));
-    expect(handValue(state.players[0].cards).total).toBe(21);
-    expect(state.players[0].done).toBe(true);
+    expect(handValue(state.players[0].hands[0].cards).total).toBe(21);
+    expect(state.players[0].hands[0].done).toBe(true);
     expect(state.currentTurn).toBe(1);
   });
 
@@ -113,7 +113,7 @@ describe("player actions", () => {
     });
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 0, { type: "hit" }));
-    expect(end.outcomes[0]).toBe("lose");
+    expect(end.outcomes[0][0]).toBe("lose");
   });
 
   it("double down doubles the bet, draws one card, and ends the turn", () => {
@@ -124,13 +124,27 @@ describe("player actions", () => {
     });
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 0, { type: "double" }));
-    expect(end.players[0].bet).toBe(200);
-    expect(end.players[0].doubled).toBe(true);
-    expect(labelsOf(end.players[0].cards)).toEqual(["6c", "5c", "Th"]);
-    expect(end.outcomes[0]).toBe("win"); // 21 vs dealer 18
+    expect(end.players[0].hands[0].bet).toBe(200);
+    expect(end.players[0].hands[0].doubled).toBe(true);
+    expect(labelsOf(end.players[0].hands[0].cards)).toEqual(["6c", "5c", "Th"]);
+    expect(end.outcomes[0][0]).toBe("win"); // 21 vs dealer 18
   });
 
-  it("rejects double after a hit, out-of-turn actions, and actions on a finished round", () => {
+  it("double down stays available after a hit", () => {
+    const shoe = buildShoe([0], {
+      hands: { 0: ["2c", "3c"] },
+      dealer: ["Td", "8d"],
+      draws: ["6h", "Th"], // 5 -> 11 -> doubles into 21
+    });
+    let state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
+    state = acting(act(state, 0, { type: "hit" }));
+    const end = finished(act(state, 0, { type: "double" }));
+    expect(end.players[0].hands[0]).toMatchObject({ bet: 200, doubled: true, done: true });
+    expect(labelsOf(end.players[0].hands[0].cards)).toEqual(["2c", "3c", "6h", "Th"]);
+    expect(end.outcomes[0][0]).toBe("win");
+  });
+
+  it("rejects out-of-turn actions and actions on a finished round", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["2c", "3c"], 1: ["5c", "6c"] },
       dealer: ["7c", "Th"],
@@ -140,7 +154,6 @@ describe("player actions", () => {
     expectRejected(state, 1, { type: "hit" }, "not-your-turn");
     expectRejected(state, 3, { type: "stand" }, "not-your-turn");
     state = acting(act(state, 0, { type: "hit" }));
-    expectRejected(state, 0, { type: "double" }, "cannot-double");
     state = acting(act(state, 0, { type: "stand" }));
     const end = act(state, 1, { type: "stand" });
     expectRejected(end, 1, { type: "hit" }, "wrong-phase");
@@ -157,7 +170,7 @@ describe("dealer play", () => {
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 0, { type: "stand" }));
     expect(labelsOf(end.dealerCards)).toEqual(["2d", "3d", "4h", "5h", "6h"]);
-    expect(end.outcomes[0]).toBe("lose"); // 18 vs 20
+    expect(end.outcomes[0][0]).toBe("lose"); // 18 vs 20
   });
 
   it("stands on soft 17", () => {
@@ -168,7 +181,7 @@ describe("dealer play", () => {
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 0, { type: "stand" }));
     expect(end.dealerCards).toHaveLength(2);
-    expect(end.outcomes[0]).toBe("push"); // 17 vs soft 17
+    expect(end.outcomes[0][0]).toBe("push"); // 17 vs soft 17
   });
 
   it("does not draw when every seat busted", () => {
@@ -180,7 +193,7 @@ describe("dealer play", () => {
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 0, { type: "hit" }));
     expect(end.dealerCards).toHaveLength(2);
-    expect(end.outcomes[0]).toBe("lose");
+    expect(end.outcomes[0][0]).toBe("lose");
   });
 
   it("a dealer bust pays every standing seat", () => {
@@ -192,8 +205,8 @@ describe("dealer play", () => {
     let state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
     state = acting(act(state, 0, { type: "stand" }));
     const end = finished(act(state, 1, { type: "stand" }));
-    expect(end.outcomes[0]).toBe("win");
-    expect(end.outcomes[1]).toBe("win");
+    expect(end.outcomes[0][0]).toBe("win");
+    expect(end.outcomes[1][0]).toBe("win");
   });
 
   it("a player natural still pays 3:2 when the dealer draws to 21", () => {
@@ -204,7 +217,7 @@ describe("dealer play", () => {
     });
     const state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
     const end = finished(act(state, 1, { type: "stand" }));
-    expect(end.outcomes[0]).toBe("blackjack");
-    expect(end.outcomes[1]).toBe("lose"); // 20 vs 21
+    expect(end.outcomes[0][0]).toBe("blackjack");
+    expect(end.outcomes[1][0]).toBe("lose"); // 20 vs 21
   });
 });

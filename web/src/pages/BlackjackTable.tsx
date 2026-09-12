@@ -10,6 +10,7 @@ import type {
   ErrorMessage,
   Outcome,
   PublicHandStatus,
+  PublicPlayerStatus,
   RedactedView,
   Seat,
   SeatStatus,
@@ -28,9 +29,11 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "bad-message": "Something went wrong sending that action.",
   "game-in-progress": "A round is already in progress.",
   "no-active-hand": "There's no round in progress right now.",
+  "invalid-bet": "That bet is below the table minimum.",
   "wrong-phase": "That action isn't allowed right now.",
   "not-your-turn": "It's not your turn yet.",
-  "cannot-double": "You can only double down on your first two cards.",
+  "cannot-double": "You can't double down on a finished hand.",
+  "cannot-split": "You can only split a pair on your first two cards.",
 };
 
 const OUTCOME_LABEL: Record<Outcome, string> = {
@@ -74,7 +77,7 @@ export default function BlackjackTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, handNo, seats, view, error, settled, nextHand, usernames, send, dismissError, retry } =
+  const { status, handNo, stake, seats, view, error, settled, nextHand, usernames, send, dismissError, retry } =
     useBlackjackSocket(tableId);
   const reducedMotion = usePrefersReducedMotion();
 
@@ -117,18 +120,45 @@ export default function BlackjackTable() {
   // Unlike poker, a seated occupant skipped at deal time still receives the
   // live view (all blackjack hands are public) — being absent from
   // view.players is what marks them as sitting this round out.
-  const myHand: PublicHandStatus | null = view !== null && mySeat !== null ? (view.players[mySeat] ?? null) : null;
-  const skippedThisRound = view?.phase === "acting" && mySeat !== null && myHand === null;
+  const myPlayer: PublicPlayerStatus | null = view !== null && mySeat !== null ? (view.players[mySeat] ?? null) : null;
+  const myActiveHand: PublicHandStatus | null = myPlayer ? (myPlayer.hands[myPlayer.activeHand] ?? null) : null;
+  const skippedThisRound = view?.phase === "acting" && mySeat !== null && myPlayer === null;
 
-  const canReadyUp =
-    mySeat !== null && !countdownActive && (view === null || view.phase === "finished");
+  const betweenRounds = view === null || view.phase === "finished";
+  const canReadyUp = mySeat !== null && !countdownActive && betweenRounds;
 
-  const isMyTurn = view?.phase === "acting" && view.currentTurn === mySeat && myHand !== null && !myHand.done;
+  const isMyTurn =
+    view?.phase === "acting" && view.currentTurn === mySeat && myActiveHand !== null && !myActiveHand.done;
 
   // Own settled result, shown inline in the self panel until the next deal
   // clears `settled` (see useBlackjackSocket's handNo keying).
-  const myOutcome = view?.phase === "finished" && mySeat !== null ? view.outcomes[mySeat] : undefined;
+  const myOutcomes = view?.phase === "finished" && mySeat !== null ? view.outcomes[mySeat] : undefined;
   const myDelta = settled !== null && mySeat !== null ? settled.deltas[mySeat] : undefined;
+
+  // Bet entry: local text mirrors the server's remembered bet, committed on
+  // blur/Enter/steppers and again right before 'ready' so the deal can never
+  // race an uncommitted edit.
+  const serverBet = mySeatRow?.bet ?? stake;
+  const [betInput, setBetInput] = useState(String(serverBet));
+  useEffect(() => {
+    setBetInput(String(serverBet));
+  }, [serverBet]);
+
+  const commitBet = (raw: string = betInput): void => {
+    const parsed = Number(raw);
+    const amount = Number.isInteger(parsed) && parsed >= stake ? parsed : stake;
+    setBetInput(String(amount));
+    if (amount !== serverBet) send({ type: "bet", amount });
+  };
+  const stepBet = (delta: number): void => {
+    const parsed = Number(betInput);
+    const base = Number.isInteger(parsed) ? parsed : serverBet;
+    commitBet(String(Math.max(stake, base + delta)));
+  };
+  const handleReady = (): void => {
+    commitBet();
+    send({ type: "ready" });
+  };
 
   const handleLeaveTable = () => {
     send({ type: "leave" });
@@ -216,21 +246,27 @@ export default function BlackjackTable() {
       </div>
 
       <div className="pk-self">
-        {settled && myOutcome !== undefined && myDelta !== undefined && (
+        {settled && myOutcomes !== undefined && myDelta !== undefined && (
           <p
             key={settled.handNo}
             className={`bj-result ${myDelta > 0 ? "bj-result--gain" : myDelta < 0 ? "bj-result--loss" : ""}`}
             role="status"
           >
-            {OUTCOME_LABEL[myOutcome]}
+            {myOutcomes.map((o) => OUTCOME_LABEL[o]).join(" / ")}
             {myDelta !== 0 ? ` ${formatDelta(myDelta)}` : ""}
             {settled.newBalance !== undefined ? ` · Balance ${settled.newBalance.toLocaleString()}` : ""}
           </p>
         )}
-        {myHand && (
+        {myPlayer && (
           <p className="pk-self__committed">
-            Your hand: {totalLabel(myHand)} &middot; Bet {myHand.bet.toLocaleString()}
-            {myHand.doubled ? " (doubled)" : ""}
+            {myPlayer.hands.length === 1
+              ? `Your hand: ${totalLabel(myPlayer.hands[0])} · Bet ${myPlayer.hands[0].bet.toLocaleString()}${myPlayer.hands[0].doubled ? " (doubled)" : ""}`
+              : myPlayer.hands
+                  .map(
+                    (h, i) =>
+                      `Hand ${i + 1}: ${totalLabel(h)} · Bet ${h.bet.toLocaleString()}${h.doubled ? " (doubled)" : ""}`,
+                  )
+                  .join("  |  ")}
           </p>
         )}
         {mySeatRow && (
@@ -239,8 +275,34 @@ export default function BlackjackTable() {
           </p>
         )}
 
+        {mySeatRow && betweenRounds && (
+          <div className="bj-bet">
+            <span className="bj-bet__label">Bet (min {stake.toLocaleString()})</span>
+            <button type="button" className="button button--small" onClick={() => stepBet(-stake)} aria-label="Lower bet">
+              −
+            </button>
+            <input
+              className="field__input bj-bet__input"
+              type="number"
+              inputMode="numeric"
+              min={stake}
+              step={stake}
+              value={betInput}
+              onChange={(e) => setBetInput(e.target.value)}
+              onBlur={() => commitBet()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitBet();
+              }}
+              aria-label="Bet for the next round"
+            />
+            <button type="button" className="button button--small" onClick={() => stepBet(stake)} aria-label="Raise bet">
+              +
+            </button>
+          </div>
+        )}
+
         <div className="table-actions pk-actionbar">
-          {isMyTurn && myHand && (
+          {isMyTurn && myPlayer && (
             <>
               <button type="button" className="button button--primary" onClick={() => send({ type: "hit" })}>
                 Hit
@@ -248,24 +310,19 @@ export default function BlackjackTable() {
               <button type="button" className="button" onClick={() => send({ type: "stand" })}>
                 Stand
               </button>
-              <button
-                type="button"
-                className="button"
-                disabled={myHand.cards.length !== 2}
-                onClick={() => send({ type: "double" })}
-              >
+              <button type="button" className="button" onClick={() => send({ type: "double" })}>
                 Double
               </button>
+              {myPlayer.canSplit && (
+                <button type="button" className="button" onClick={() => send({ type: "split" })}>
+                  Split
+                </button>
+              )}
             </>
           )}
 
           {canReadyUp && (
-            <button
-              type="button"
-              className="button button--primary"
-              disabled={amReady}
-              onClick={() => send({ type: "ready" })}
-            >
+            <button type="button" className="button button--primary" disabled={amReady} onClick={handleReady}>
               {amReady ? "Waiting for others…" : view === null ? "Ready" : "Ready for next round"}
             </button>
           )}
@@ -295,11 +352,12 @@ function BjSeat({
   countdownActive: boolean;
 }) {
   const row = seats.find((s) => s.seat === seat);
-  const hand: PublicHandStatus | undefined = view?.players[seat];
+  const player: PublicPlayerStatus | undefined = view?.players[seat];
   const isMe = seat === mySeat;
   const isCurrentTurn = view?.phase === "acting" && view.currentTurn === seat;
   const isOpen = !row || row.userId === null;
-  const outcome: Outcome | undefined = view?.phase === "finished" ? view.outcomes[seat] : undefined;
+  const outcomes: readonly Outcome[] | undefined = view?.phase === "finished" ? view.outcomes[seat] : undefined;
+  const allBusted = player !== undefined && player.hands.every((h) => h.busted);
 
   // Floating delta chip + winner glow, scoped and keyed exactly like PkSeat's.
   const seatDelta = settled?.deltas[seat];
@@ -312,7 +370,7 @@ function BjSeat({
     "bj-seat",
     isMe && "pk-seat--me",
     isOpen && "pk-seat--open",
-    hand?.busted && "pk-seat--folded",
+    allBusted && "pk-seat--folded",
     isCurrentTurn && "pk-seat--turn",
     isWinnerSeat && "pk-seat--winner",
   ]
@@ -339,27 +397,34 @@ function BjSeat({
       {!isOpen && (
         <div className="pk-seat__badges">
           {row?.ready && <span className="ready-badge">Ready</span>}
-          {hand?.natural && <span className="pk-badge bj-badge--blackjack">Blackjack</span>}
-          {hand?.busted && <span className="pk-badge pk-badge--fold">Bust</span>}
-          {hand?.doubled && <span className="pk-badge bj-badge--doubled">Doubled</span>}
           {row?.leavePending && <span className="pk-badge pk-badge--leaving">Leaving</span>}
+          {view?.phase !== "acting" && row && <span className="pk-badge bj-badge--bet">Next bet {row.bet.toLocaleString()}</span>}
         </div>
       )}
 
-      {hand && (
-        <>
-          <div className="pk-reveal__cards bj-seat__cards">
-            {hand.cards.map((c) => (
-              <PokerCard key={c.id} card={c} />
-            ))}
-          </div>
-          <div className="pk-seat__chips">
-            <span className="pk-seat__total">{totalLabel(hand)}</span>
-            <span>Bet {hand.bet.toLocaleString()}</span>
-            {outcome && <span className={outcome === "lose" ? "" : "pk-seat__total"}>{OUTCOME_LABEL[outcome]}</span>}
-          </div>
-        </>
-      )}
+      {player &&
+        player.hands.map((hand, i) => {
+          const active = isCurrentTurn && player.activeHand === i && !hand.done;
+          return (
+            <div key={i} className={`bj-hand ${active ? "bj-hand--active" : ""}`}>
+              <div className="pk-reveal__cards bj-seat__cards">
+                {hand.cards.map((c) => (
+                  <PokerCard key={c.id} card={c} />
+                ))}
+              </div>
+              <div className="pk-seat__chips">
+                <span className="pk-seat__total">{totalLabel(hand)}</span>
+                <span>Bet {hand.bet.toLocaleString()}</span>
+                {hand.natural && <span className="pk-badge bj-badge--blackjack">Blackjack</span>}
+                {hand.busted && <span className="pk-badge pk-badge--fold">Bust</span>}
+                {hand.doubled && <span className="pk-badge bj-badge--doubled">Doubled</span>}
+                {outcomes?.[i] && (
+                  <span className={outcomes[i] === "lose" ? "" : "pk-seat__total"}>{OUTCOME_LABEL[outcomes[i]]}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
 
       {row && !isOpen && (
         <span className={`seat-credits ${row.credits < 0 ? "seat-credits--negative" : ""}`}>
