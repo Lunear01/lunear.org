@@ -8,13 +8,13 @@ import type {
   ErrorCode,
   ErrorMessage,
   PublicPlayerStatus,
-  RedactedRoundEndView,
   RedactedView,
+  RevealRecord,
   Seat,
   SeatStatus,
   TableRank,
 } from "../ws/liarsbar-types";
-import { useLiarsBarSocket } from "../ws/useLiarsBarSocket";
+import { ROUND_END_HOLD_MS, useLiarsBarSocket } from "../ws/useLiarsBarSocket";
 
 // This table page is liarsbar-specific, so the lobby it returns to on exit
 // is hardcoded rather than derived (mirrors Table.tsx's DOUDIZHU_LOBBY_PATH).
@@ -78,7 +78,7 @@ export default function LiarsBarTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError, continueRoundEnd, revealSeq } =
+  const { status, round, seats, view, error, settled, aborted, send, dismissError, continueRoundEnd, revealSeq } =
     useLiarsBarSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -135,6 +135,17 @@ export default function LiarsBarTable() {
 
   const finishedView = view?.phase === "finished" ? view : null;
   const roundEndView = view?.phase === "roundEnd" ? view : null;
+
+  // The match-ending challenge gets the same reveal as any other before the
+  // settlement panel appears. Tracks which match's final reveal was dismissed
+  // (Continue or the hold timer) so the panel never flashes first.
+  const [finalRevealDismissedFor, setFinalRevealDismissedFor] = useState<number | null>(null);
+  const finalRevealOpen = finishedView !== null && finalRevealDismissedFor !== round;
+  useEffect(() => {
+    if (!finalRevealOpen) return;
+    const t = setTimeout(() => setFinalRevealDismissedFor(round), ROUND_END_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [finalRevealOpen, round]);
 
   const handleExitToLobby = () => navigate(LIARSBAR_LOBBY_PATH);
 
@@ -249,10 +260,26 @@ export default function LiarsBarTable() {
       </div>
 
       {roundEndView && (
-        <LiarsBarRevealOverlay key={revealSeq} view={roundEndView} seats={seats} onContinue={continueRoundEnd} />
+        <LiarsBarRevealOverlay
+          key={revealSeq}
+          lastReveal={roundEndView.lastReveal}
+          players={roundEndView.players}
+          seats={seats}
+          onContinue={continueRoundEnd}
+        />
       )}
 
-      {settled && !aborted && finishedView && (
+      {finishedView && finalRevealOpen && (
+        <LiarsBarRevealOverlay
+          key={`final-${round}`}
+          lastReveal={finishedView.lastReveal}
+          players={finishedView.players}
+          seats={seats}
+          onContinue={() => setFinalRevealDismissedFor(round)}
+        />
+      )}
+
+      {settled && !aborted && finishedView && !finalRevealOpen && (
         <div className="settled-overlay">
           <div className="settled-card card">
             <h2 className="modal__title settled-card__winner settled-card__winner--gold">
@@ -400,17 +427,18 @@ function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; 
 }
 
 function LiarsBarRevealOverlay({
-  view,
+  lastReveal,
+  players,
   seats,
   onContinue,
 }: {
-  view: RedactedRoundEndView;
+  lastReveal: RevealRecord;
+  players: Readonly<Record<Seat, PublicPlayerStatus>>;
   seats: readonly SeatStatus[] | null;
   onContinue: () => void;
 }) {
   const [stage, setStage] = useState<0 | 1 | 2>(0);
-  const { lastReveal } = view;
-  const loserStatus = view.players[lastReveal.loserSeat];
+  const loserStatus = players[lastReveal.loserSeat];
 
   useEffect(() => {
     const t1 = setTimeout(() => setStage(1), 450);

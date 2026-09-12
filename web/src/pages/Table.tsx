@@ -16,6 +16,9 @@ const DOUDIZHU_LOBBY_PATH = "/lobby/doudizhu";
 
 const SEATS: readonly Seat[] = [0, 1, 2];
 
+/** How long the winning play stays on the felt before the settlement panel covers it. */
+const FINAL_PLAY_HOLD_MS = 3000;
+
 const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "wrong-phase": "That action isn't allowed right now.",
   "not-your-turn": "It's not your turn yet.",
@@ -90,6 +93,16 @@ export default function Table() {
   useEffect(() => {
     if (settled?.newBalance !== undefined) void refresh();
   }, [settled, refresh]);
+
+  // The settlement panel waits FINAL_PLAY_HOLD_MS so the winning play (see
+  // CenterArea's finished case) is seen before it's covered.
+  const [settledVisible, setSettledVisible] = useState(false);
+  useEffect(() => {
+    setSettledVisible(false);
+    if (!settled) return;
+    const t = setTimeout(() => setSettledVisible(true), FINAL_PLAY_HOLD_MS);
+    return () => clearTimeout(t);
+  }, [settled]);
 
   const toggleCard = (id: string) => {
     setSelected((prev) => {
@@ -281,7 +294,7 @@ export default function Table() {
         </div>
       </div>
 
-      {settled && !aborted && (
+      {settled && !aborted && settledVisible && (
         <div className="settled-overlay">
           <div className="settled-card card">
             <h2 className={`modal__title settled-card__winner ${viewerWonHand ? "settled-card__winner--gold" : ""}`}>
@@ -429,9 +442,20 @@ function CenterArea({
           </p>
         </div>
       );
-    case "finished":
+    case "finished": {
+      const finalPlay = [...view.history].reverse().find((h) => h.combo !== null);
       return (
         <div>
+          {finalPlay?.combo && (
+            <>
+              <div className="table-cardrow table-cardrow--lastplay">
+                {sortForHand(finalPlay.combo.cards).map((c) => (
+                  <PlayingCard key={c.id} card={c} />
+                ))}
+              </div>
+              <p className="table-center__turn">{seatLabel(seats, finalPlay.seat)} goes out</p>
+            </>
+          )}
           {view.isSpring && <p className="table-center__hint">Spring — the landlord swept the farmers.</p>}
           {view.isAntiSpring && (
             <p className="table-center__hint">Anti-spring — the farmers shut out the landlord.</p>
@@ -439,6 +463,7 @@ function CenterArea({
           {view.bombCount > 0 && <p className="table-center__hint">{view.bombCount} bomb(s) played</p>}
         </div>
       );
+    }
     case "redeal":
       return <p className="table-center__hint">All players passed — reshuffling for a new hand…</p>;
     default:
