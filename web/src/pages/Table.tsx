@@ -221,11 +221,9 @@ export default function Table() {
                 key={card.id}
                 card={card}
                 selected={selected.has(card.id)}
-                onClick={
-                  view.phase === "playing" && mySeat === view.currentTurn
-                    ? () => toggleCard(card.id)
-                    : undefined
-                }
+                // Selectable all through play, not just on our turn, so a
+                // play can be lined up while waiting. Play itself stays turn-gated.
+                onClick={view.phase === "playing" ? () => toggleCard(card.id) : undefined}
               />
             ))}
           </div>
