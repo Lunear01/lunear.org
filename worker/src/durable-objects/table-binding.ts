@@ -29,6 +29,12 @@ export function getTableStub(env: Env, gameId: string, tableId: string): TableSt
       return env.POKER_TABLE_DO.getByName(tableId);
     case "blackjack":
       return env.BLACKJACK_TABLE_DO.getByName(tableId);
+    case "chudaidi":
+      return env.CHUDAIDI_TABLE_DO.getByName(tableId);
+    case "uno":
+      return env.UNO_TABLE_DO.getByName(tableId);
+    case "pescalo":
+      return env.PESCALO_TABLE_DO.getByName(tableId);
     default:
       return undefined;
   }

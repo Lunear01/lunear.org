@@ -1,0 +1,189 @@
+/* Pescalo (Go Fish) table. Shared felt/hand/card/settlement rules live in
+   global.css; only the opponent row (up to four pickable seats), book chips,
+   the pool, and the event feed are specific to this game. */
+
+.pc-opponents {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.pc-opponent {
+  max-width: none;
+  min-width: 0;
+  padding: 0.3rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+  text-align: center;
+}
+
+.pc-opponent--turn {
+  border-color: var(--color-gold);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.pc-opponent--pickable {
+  cursor: pointer;
+  border-style: dashed;
+  border-color: var(--color-cream);
+}
+
+.pc-opponent--pickable:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pc-opponent--selected,
+.pc-opponent--selected:hover {
+  border-style: solid;
+  border-color: var(--color-gold);
+  background: rgba(217, 164, 65, 0.18);
+  box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.35);
+}
+
+.pc-opponent--empty {
+  opacity: 0.45;
+}
+
+.pc-self-status {
+  text-align: center;
+  color: var(--color-gold-light);
+  font-size: 0.85rem;
+}
+
+/* --- Books ------------------------------------------------------------- */
+
+.pc-books {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pc-books__label {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  margin-right: 0.2rem;
+}
+
+/* A rank chip standing in for four face-down cards. */
+.pc-book {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-size: 0.8rem;
+  font-weight: 700;
+  box-shadow:
+    2px 2px 0 rgba(0, 0, 0, 0.35),
+    3px 3px 0 var(--color-cream);
+}
+
+/* --- Centre -------------------------------------------------------------- */
+
+.pc-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.pc-pool {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.pc-pool .card-back {
+  margin-left: 0;
+}
+
+.pc-pool__empty {
+  width: 48px;
+  height: 68px;
+  border-radius: 6px;
+  border: 1px dashed var(--color-muted);
+}
+
+.pc-pool__count {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+.pc-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+  color: var(--color-cream);
+  max-width: 100%;
+}
+
+.pc-feed__item--go-fish,
+.pc-feed__item--drew-match {
+  color: var(--color-gold-light);
+  font-weight: 600;
+}
+
+.pc-feed__item--book {
+  color: var(--color-gold);
+  font-weight: 700;
+}
+
+.pc-feed__item--skipped,
+.pc-feed__item--refill {
+  color: var(--color-muted);
+}
+
+.pc-final-books {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.pc-final-books__row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pc-final-books__name {
+  font-weight: 600;
+  color: var(--color-cream);
+}
+
+.pc-settled__books {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 719px) {
+  .pc-opponents {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pc-opponent {
+    padding: 0.2rem;
+  }
+
+  .pc-feed {
+    font-size: 0.8rem;
+  }
+}

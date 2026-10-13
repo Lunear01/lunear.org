@@ -434,6 +434,58 @@ a {
   margin-left: -0.6rem;
 }
 
+.game-tile__art--chudaidi {
+  gap: 0;
+}
+
+.game-tile__art--uno {
+  gap: 0;
+}
+
+.game-tile__art--pescalo {
+  gap: 0;
+}
+
+.game-tile__fish {
+  font-size: 1.6rem;
+  margin-left: 0.4rem;
+  transform: translateY(0.3rem);
+}
+
+/* Three fanned UNO faces for the UNO tile: a colour block with a white pip. */
+.game-tile__unocard {
+  width: 2rem;
+  height: 2.8rem;
+  border-radius: 6px;
+  border: 2px solid var(--color-cream);
+  color: var(--color-cream);
+  font-size: 1.1rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.game-tile__unocard--red {
+  background: #d7263d;
+  transform: rotate(-12deg) translateY(0.2rem);
+  z-index: 1;
+}
+
+.game-tile__unocard--blue {
+  background: #1f6fd6;
+  margin: 0 -0.5rem;
+  transform: translateY(-0.2rem);
+  z-index: 3;
+}
+
+.game-tile__unocard--green {
+  background: #2fa84f;
+  transform: rotate(12deg) translateY(0.2rem);
+  z-index: 2;
+}
+
 .game-tile__body {
   padding: 1rem;
 }

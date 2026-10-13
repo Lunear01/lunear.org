@@ -1,0 +1,507 @@
+/* ---------- UNO: card faces and table layout ---------- */
+/* Imported by pages/UnoTable.tsx. Shares the .table-* felt/layout, .button*,
+   .settled-* and .status-dot classes from global.css; everything UNO-specific
+   lives here under .uno-*. */
+
+:root {
+  --uno-red: #e2232f;
+  --uno-yellow: #f2c110;
+  --uno-green: #2bb04a;
+  --uno-blue: #1d6fd6;
+  --uno-black: #1b1b1f;
+  /* Fan budget: a hand can grow past 20 cards after draws, so the overlap is
+     heavy and the card a touch narrower than the poker deck's. */
+  --uno-w: clamp(40px, 8vw, 72px);
+  --uno-h: calc(var(--uno-w) * 1.5);
+  --uno-w-sm: clamp(20px, 4vw, 34px);
+  --uno-h-sm: calc(var(--uno-w-sm) * 1.5);
+}
+
+/* --- Card ------------------------------------------------------------- */
+
+.uno-card {
+  position: relative;
+  width: var(--uno-w);
+  height: var(--uno-h);
+  border-radius: calc(var(--uno-w) * 0.12);
+  border: calc(2px + var(--uno-w) * 0.04) solid #fff;
+  background: var(--uno-black);
+  color: #fff;
+  padding: 0;
+  display: block;
+  flex-shrink: 0;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+  margin-left: calc(var(--uno-w) * -0.5);
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.12s ease;
+  font-family: inherit;
+}
+
+.uno-card:disabled {
+  cursor: default;
+}
+
+.uno-card--small {
+  width: var(--uno-w-sm);
+  height: var(--uno-h-sm);
+  border-width: 1.5px;
+  border-radius: calc(var(--uno-w-sm) * 0.12);
+  margin-left: calc(var(--uno-w-sm) * -0.6);
+}
+
+.uno-hand .uno-card:first-child,
+.uno-opponent__cards .uno-card:first-child,
+.uno-pile .uno-card,
+.uno-lastplay .uno-card:first-child {
+  margin-left: 0;
+}
+
+.uno-card--red {
+  background: var(--uno-red);
+}
+
+.uno-card--yellow {
+  background: var(--uno-yellow);
+}
+
+.uno-card--green {
+  background: var(--uno-green);
+}
+
+.uno-card--blue {
+  background: var(--uno-blue);
+}
+
+.uno-card--wild {
+  background: var(--uno-black);
+}
+
+.uno-card--dim {
+  opacity: 0.45;
+}
+
+.uno-card--highlighted {
+  transform: translateY(-12px);
+  box-shadow:
+    0 6px 14px rgba(0, 0, 0, 0.5),
+    0 0 0 3px var(--color-gold);
+}
+
+.uno-hand .uno-card:not(:disabled):hover {
+  transform: translateY(-8px);
+}
+
+.uno-card__corner {
+  position: absolute;
+  font-weight: 800;
+  font-size: calc(var(--uno-w) * 0.22);
+  line-height: 1;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.uno-card--small .uno-card__corner {
+  font-size: calc(var(--uno-w-sm) * 0.3);
+}
+
+.uno-card__corner--top {
+  top: 5%;
+  left: 9%;
+}
+
+.uno-card__corner--bottom {
+  bottom: 5%;
+  right: 9%;
+  transform: rotate(180deg);
+}
+
+.uno-card__oval {
+  position: absolute;
+  inset: 16% 10%;
+  background: #fff;
+  border-radius: 50%;
+  transform: rotate(-28deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.uno-card__center {
+  transform: rotate(28deg);
+  font-weight: 900;
+  font-size: calc(var(--uno-w) * 0.5);
+  line-height: 1;
+  color: inherit;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+  position: relative;
+}
+
+.uno-card--small .uno-card__center {
+  font-size: calc(var(--uno-w-sm) * 0.5);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.uno-card--red .uno-card__center {
+  color: var(--uno-red);
+}
+
+.uno-card--yellow .uno-card__center {
+  color: #c99a00;
+}
+
+.uno-card--green .uno-card__center {
+  color: var(--uno-green);
+}
+
+.uno-card--blue .uno-card__center {
+  color: var(--uno-blue);
+}
+
+.uno-card--wild .uno-card__center {
+  color: #fff;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+}
+
+.uno-card__quad {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.uno-card__quad-cell--red {
+  background: var(--uno-red);
+}
+
+.uno-card__quad-cell--yellow {
+  background: var(--uno-yellow);
+}
+
+.uno-card__quad-cell--green {
+  background: var(--uno-green);
+}
+
+.uno-card__quad-cell--blue {
+  background: var(--uno-blue);
+}
+
+.uno-card--back {
+  background: var(--uno-black);
+}
+
+.uno-card__oval--back {
+  background: var(--uno-red);
+}
+
+.uno-card__center--back {
+  color: var(--uno-yellow);
+  font-size: calc(var(--uno-w) * 0.3);
+  letter-spacing: -0.02em;
+  font-style: italic;
+}
+
+.uno-card--small .uno-card__center--back {
+  font-size: calc(var(--uno-w-sm) * 0.3);
+}
+
+/* --- Table layout --------------------------------------------------- */
+
+.uno-opponents {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+}
+
+.uno-opponent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  max-width: 30vw;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.uno-opponent--turn {
+  border-color: var(--color-gold);
+  background: rgba(217, 164, 65, 0.1);
+}
+
+.uno-opponent__cards {
+  display: flex;
+  max-width: 100%;
+  overflow: hidden;
+  min-height: var(--uno-h-sm);
+}
+
+.uno-opponent__info {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.uno-opponent__name {
+  color: var(--color-cream);
+  font-weight: 600;
+}
+
+.uno-badge {
+  background: var(--uno-red);
+  color: #fff;
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  animation: uno-pulse 1.2s ease-in-out infinite;
+}
+
+/* Armed "UNO!" toggle beside the turn actions; lit while the next play carries the call. */
+.uno-arm {
+  font-weight: 900;
+  font-style: italic;
+}
+
+.uno-arm--on {
+  background: var(--uno-red);
+  border-color: var(--uno-red);
+  color: #fff;
+}
+
+.uno-catch {
+  background: var(--uno-yellow);
+  border-color: var(--uno-yellow);
+  color: var(--uno-black);
+}
+
+/* A seat sitting on one card with no call: anyone may catch it. */
+.uno-open {
+  color: var(--uno-yellow);
+  font-size: 0.7rem;
+  font-weight: 700;
+  animation: uno-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes uno-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+.uno-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.uno-piles {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.uno-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.uno-pile__stack {
+  position: relative;
+}
+
+.uno-pile__stack .uno-card {
+  margin-left: 0;
+}
+
+.uno-pile--draw .uno-card:not(:disabled) {
+  cursor: pointer;
+}
+
+.uno-pile--draw .uno-card:not(:disabled):hover {
+  transform: translateY(-4px);
+}
+
+.uno-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--color-cream);
+}
+
+.uno-color__swatch {
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  display: inline-block;
+}
+
+.uno-color__swatch--red {
+  background: var(--uno-red);
+}
+
+.uno-color__swatch--yellow {
+  background: var(--uno-yellow);
+}
+
+.uno-color__swatch--green {
+  background: var(--uno-green);
+}
+
+.uno-color__swatch--blue {
+  background: var(--uno-blue);
+}
+
+.uno-direction {
+  font-size: 1.3rem;
+  color: var(--color-gold-light);
+  line-height: 1;
+}
+
+.uno-events {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  margin: 0;
+  min-height: 1.2em;
+}
+
+.uno-self {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  padding: 0 0.5rem;
+}
+
+.uno-hand {
+  display: flex;
+  justify-content: safe center;
+  padding: 1rem 0.5rem 0.4rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- Colour picker ---------------------------------------------------- */
+
+.uno-picker {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 120;
+  padding: 1rem;
+}
+
+.uno-picker__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.25rem;
+}
+
+.uno-picker__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.uno-picker__swatch {
+  width: min(28vw, 110px);
+  height: min(28vw, 110px);
+  border-radius: 14px;
+  border: 3px solid #fff;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  transition: transform 0.1s ease;
+}
+
+.uno-picker__swatch:hover {
+  transform: scale(1.05);
+}
+
+.uno-picker__swatch--red {
+  background: var(--uno-red);
+}
+
+.uno-picker__swatch--yellow {
+  background: var(--uno-yellow);
+}
+
+.uno-picker__swatch--green {
+  background: var(--uno-green);
+}
+
+.uno-picker__swatch--blue {
+  background: var(--uno-blue);
+}
+
+/* --- Finished hands ---------------------------------------------------- */
+
+.uno-results {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  text-align: left;
+}
+
+.uno-results__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.uno-results__cards {
+  display: flex;
+  overflow: hidden;
+  max-width: 50%;
+}
+
+.uno-results__cards .uno-card:first-child {
+  margin-left: 0;
+}
+
+@media (min-width: 720px) {
+  .uno-opponent {
+    max-width: 22vw;
+  }
+}

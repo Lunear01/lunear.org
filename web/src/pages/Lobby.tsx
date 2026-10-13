@@ -15,6 +15,9 @@ const GAME_NAMES: Record<string, string> = {
   liarsbar: "Liar's Bar",
   poker: "Poker",
   blackjack: "Blackjack",
+  chudaidi: "Chu Dai D",
+  uno: "UNO",
+  pescalo: "Pescalo",
 };
 
 const OPEN_PARTIES_REFRESH_MS = 5000;

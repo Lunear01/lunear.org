@@ -10,6 +10,9 @@ export { LobbyDO } from "./durable-objects/lobby";
 export { LiarsBarTableDO } from "./durable-objects/liarsbar-table";
 export { PokerTableDO } from "./durable-objects/poker-table";
 export { BlackjackTableDO } from "./durable-objects/blackjack-table";
+export { ChuDaiDTableDO } from "./durable-objects/chudaidi-table";
+export { UnoTableDO } from "./durable-objects/uno-table";
+export { PescaloTableDO } from "./durable-objects/pescalo-table";
 
 // Env comes from the generated worker-configuration.d.ts (run `npm run types -w worker` after touching wrangler.jsonc).
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();

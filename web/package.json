@@ -19,8 +19,11 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "blackjack": "*",
+    "chudaidi": "*",
     "doudizhu": "*",
+    "pescalo": "*",
     "poker": "*",
+    "uno": "*",
     "vite": "^6.0.11",
     "worker": "*"
   }

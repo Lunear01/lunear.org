@@ -4,17 +4,20 @@ import { InstallHint } from "./components/InstallHint";
 import { RequireAdmin, RequireAuth } from "./components/RequireAuth";
 import Admin from "./pages/Admin";
 import BlackjackTable from "./pages/BlackjackTable";
+import ChuDaiDTable from "./pages/ChuDaiDTable";
 import GamePicker from "./pages/GamePicker";
 import LiarsBarTable from "./pages/LiarsBarTable";
+import PescaloTable from "./pages/PescaloTable";
 import Lobby from "./pages/Lobby";
 import Login from "./pages/Login";
 import PokerTable from "./pages/PokerTable";
 import Register from "./pages/Register";
 import Table from "./pages/Table";
+import UnoTable from "./pages/UnoTable";
 
 // Dispatches /table/:gameId/:tableId to the right game's table screen.
-// All four registered games (doudizhu, liarsbar, poker, blackjack) are wired
-// to real game engines and table screens.
+// Every registered game (doudizhu, liarsbar, poker, blackjack, chudaidi,
+// uno, pescalo) is wired to a real game engine and table screen.
 function TableRoute() {
   const { gameId } = useParams<{ gameId: string }>();
   switch (gameId) {
@@ -26,6 +29,12 @@ function TableRoute() {
       return <PokerTable />;
     case "blackjack":
       return <BlackjackTable />;
+    case "chudaidi":
+      return <ChuDaiDTable />;
+    case "uno":
+      return <UnoTable />;
+    case "pescalo":
+      return <PescaloTable />;
     default:
       return <Navigate to="/" replace />;
   }

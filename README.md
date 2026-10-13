@@ -12,11 +12,9 @@ Built for fun, not for money. Don't use it as a gambling site.
 - **Liar's Bar** — `games/liarsbar`
 - **Poker** — `games/poker`
 - **Blackjack** — `games/blackjack`
-
-TODO: 
-- Chu Dai D
-- UNO
-- Pescalo
+- **Chu Dai D** (Hong Kong Big Two) — `games/chudaidi`
+- **UNO** — `games/uno`, with its own 108-card deck model
+- **Pescalo** (Go Fish) — `games/pescalo`
 
 Each game package holds pure game logic and rules, with no server or UI code, so it can be tested
 and reused on its own.
@@ -25,7 +23,7 @@ and reused on its own.
 
 - `worker/` — Cloudflare Worker (Hono) serving the API. Each active game table is a Durable
   Object, one per game type (`GameTableDO`, `LiarsBarTableDO`, `PokerTableDO`,
-  `BlackjackTableDO`), plus a `LobbyDO`
+  `BlackjackTableDO`, `ChuDaiDTableDO`, `UnoTableDO`, `PescaloTableDO`), plus a `LobbyDO`
   for matchmaking. A D1 database holds persistent data (accounts, history).
 - `web/` — React + Vite frontend, served as static assets by the same Worker.
 - `games/*` — game logic packages, imported by both `worker` and `web`.

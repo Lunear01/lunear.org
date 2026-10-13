@@ -1,0 +1,67 @@
+/* Chu Dai D table. Shared felt/hand/card/settlement rules live in global.css;
+   only the opponent row (up to three seats), the pass and turn markers, and
+   the end-of-hand reveal are specific to this game. */
+
+.cd-opponents {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.cd-opponent {
+  max-width: none;
+  min-width: 0;
+  padding: 0.3rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.cd-opponent--turn {
+  border-color: var(--color-gold);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.cd-opponent--empty {
+  opacity: 0.45;
+}
+
+.cd-passed {
+  color: var(--color-muted);
+  font-style: italic;
+  font-size: 0.7rem;
+}
+
+.cd-self-status {
+  text-align: center;
+  color: var(--color-gold-light);
+  font-size: 0.85rem;
+}
+
+/* Revealed hands at the end of a deal: small cards, tight fan, scrolls on
+   narrow screens rather than clipping. */
+.cd-revealed {
+  display: flex;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
+.cd-revealed .playing-card:first-child {
+  margin-left: 0;
+}
+
+.cd-settled__left {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 719px) {
+  .cd-opponent {
+    padding: 0.2rem;
+  }
+
+  .cd-passed {
+    font-size: 0.85rem;
+  }
+}

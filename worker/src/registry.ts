@@ -1,7 +1,10 @@
 import { gameDefinition as blackjack } from "blackjack";
+import { gameDefinition as chudaidi } from "chudaidi";
 import { gameDefinition as doudizhu } from "doudizhu";
 import { gameDefinition as liarsbar } from "liarsbar";
+import { gameDefinition as pescalo } from "pescalo";
 import { gameDefinition as poker } from "poker";
+import { gameDefinition as uno } from "uno";
 
 // The one contract between the platform and a game package. `engine` is
 // given a minimal structural shape (the four verbs every game room DO must
@@ -32,7 +35,7 @@ export interface GameDefinition {
   tableComponent?: unknown;
 }
 
-export const gameRegistry: readonly GameDefinition[] = [doudizhu, liarsbar, poker, blackjack];
+export const gameRegistry: readonly GameDefinition[] = [doudizhu, liarsbar, poker, blackjack, chudaidi, uno, pescalo];
 
 export function getGameDefinition(id: string): GameDefinition | undefined {
   return gameRegistry.find((game) => game.id === id);
