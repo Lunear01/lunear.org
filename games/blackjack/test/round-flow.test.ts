@@ -54,15 +54,27 @@ describe("the deal", () => {
     expect(state.currentTurn).toBe(1);
   });
 
-  it("a dealer natural finishes the round at the deal: naturals push, everyone else loses", () => {
+  it("a ten-up dealer natural finishes the round at the deal: naturals push, everyone else loses", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["Ac", "Kc"], 1: ["Th", "9h"] },
-      dealer: ["Ad", "Qd"],
+      dealer: ["Qd", "Ad"],
     });
     const state = finished(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
     expect(state.outcomes[0][0]).toBe("push");
     expect(state.outcomes[1][0]).toBe("lose");
     expect(state.dealerCards).toHaveLength(2);
+    expect(state.insurance).toEqual({});
+  });
+
+  it("an Ace up card opens the insurance phase instead of peeking", () => {
+    const shoe = buildShoe([0, 1], {
+      hands: { 0: ["Ac", "Kc"], 1: ["Th", "9h"] },
+      dealer: ["Ad", "Qd"],
+    });
+    const state = createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe });
+    expect(state.phase).toBe("insurance");
+    if (state.phase !== "insurance") throw new Error("expected insurance");
+    expect(state.pendingInsurance).toEqual([0, 1]);
   });
 
   it("every seat dealt a natural finishes without the dealer drawing", () => {
@@ -178,7 +190,8 @@ describe("dealer play", () => {
       hands: { 0: ["Tc", "7c"] },
       dealer: ["Ad", "6d"],
     });
-    const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
+    const dealt = createGame({ seats: [0], stake: 100, shuffledShoe: shoe });
+    const state = acting(act(dealt, 0, { type: "declineInsurance" }));
     const end = finished(act(state, 0, { type: "stand" }));
     expect(end.dealerCards).toHaveLength(2);
     expect(end.outcomes[0][0]).toBe("push"); // 17 vs soft 17

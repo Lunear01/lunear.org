@@ -2,7 +2,8 @@
 // over a single WebSocket. Imported by the client (web/) for typed messages,
 // and by the DO itself so both sides share one definition. Mirrors
 // poker-protocol.ts's shape and conventions, adapted to blackjack's action
-// set (hit/stand/double/split plus a between-rounds bet) and the same
+// set (hit/stand/double/split/surrender, insure/declineInsurance during the
+// insurance phase, plus a between-rounds bet) and the same
 // drop-in room model: no 'aborted' message — a leave or an expired disconnect
 // only ever auto-STANDS that one seat (their bet still plays out — see
 // BlackjackTableDO's file header), so a client only ever renders 'state' and
@@ -19,6 +20,9 @@ export type ClientMessage =
   | { readonly type: "stand" }
   | { readonly type: "double" }
   | { readonly type: "split" }
+  | { readonly type: "surrender" }
+  | { readonly type: "insure" }
+  | { readonly type: "declineInsurance" }
   /** Sets this seat's bet for the next round. Between rounds only; must be an integer >= the table stake. */
   | { readonly type: "bet"; readonly amount: number }
   | { readonly type: "leave" };
@@ -46,6 +50,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       return { type: "double" };
     case "split":
       return { type: "split" };
+    case "surrender":
+      return { type: "surrender" };
+    case "insure":
+      return { type: "insure" };
+    case "declineInsurance":
+      return { type: "declineInsurance" };
     case "bet": {
       const amount = obj.amount;
       if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 1 || amount > MAX_BET) return null;
@@ -71,7 +81,8 @@ export interface SeatStatus {
   /**
    * True once this seat is committed to leaving (a deliberate {type:'leave'}
    * message, or a disconnect whose 30s reconnect grace has expired) but is
-   * still part of the CURRENT round — auto-stood, with their bet still live.
+   * still part of the CURRENT round — auto-declined on insurance, auto-stood
+   * when its turn arrives, with their bet still live.
    * The seat is removed entirely the moment the round settles. Always false
    * for an empty seat and for any seat between rounds.
    */

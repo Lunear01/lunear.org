@@ -34,6 +34,7 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "not-your-turn": "It's not your turn yet.",
   "cannot-double": "You can't double down on a finished hand.",
   "cannot-split": "You can only split a pair on your first two cards.",
+  "cannot-surrender": "You can only surrender before your first hit, double, or split.",
 };
 
 const OUTCOME_LABEL: Record<Outcome, string> = {
@@ -41,6 +42,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   win: "Win",
   push: "Push",
   lose: "Lose",
+  surrender: "Surrendered",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -59,6 +61,7 @@ function formatCredits(n: number): string {
 function totalLabel(hand: PublicHandStatus): string {
   if (hand.busted) return `Bust (${hand.total})`;
   if (hand.natural) return "21";
+  if (hand.surrendered) return `${hand.total} (surrendered)`;
   return hand.soft ? `Soft ${hand.total}` : String(hand.total);
 }
 
@@ -122,7 +125,13 @@ export default function BlackjackTable() {
   // view.players is what marks them as sitting this round out.
   const myPlayer: PublicPlayerStatus | null = view !== null && mySeat !== null ? (view.players[mySeat] ?? null) : null;
   const myActiveHand: PublicHandStatus | null = myPlayer ? (myPlayer.hands[myPlayer.activeHand] ?? null) : null;
-  const skippedThisRound = view?.phase === "acting" && mySeat !== null && myPlayer === null;
+  const skippedThisRound = view !== null && view.phase !== "finished" && mySeat !== null && myPlayer === null;
+
+  // Insurance: pending until this seat answers; the amount comes from the
+  // seat's single dealt hand (no split can exist yet).
+  const insurancePending = view?.phase === "insurance" && mySeat !== null && view.pendingInsurance.includes(mySeat);
+  const insuranceDecided = view?.phase === "insurance" && myPlayer !== null && !insurancePending;
+  const insuranceCost = myPlayer ? Math.floor(myPlayer.hands[0].bet / 2) : 0;
 
   const betweenRounds = view === null || view.phase === "finished";
   const canReadyUp = mySeat !== null && !countdownActive && betweenRounds;
@@ -301,8 +310,25 @@ export default function BlackjackTable() {
           </div>
         )}
 
+        {insurancePending && (
+          <div className="bj-insurance" role="group" aria-label="Insurance">
+            <span className="bj-insurance__label">Dealer shows an Ace. Insure against a blackjack?</span>
+            <button type="button" className="button button--primary" onClick={() => send({ type: "insure" })}>
+              Insure for {insuranceCost.toLocaleString()}
+            </button>
+            <button type="button" className="button" onClick={() => send({ type: "declineInsurance" })}>
+              No insurance
+            </button>
+          </div>
+        )}
+        {insuranceDecided && (
+          <p className="bj-insurance__waiting" role="status">
+            Waiting for the other seats to decide on insurance…
+          </p>
+        )}
+
         <div className="table-actions pk-actionbar">
-          {isMyTurn && myPlayer && (
+          {isMyTurn && myPlayer && myActiveHand && (
             <>
               <button type="button" className="button button--primary" onClick={() => send({ type: "hit" })}>
                 Hit
@@ -316,6 +342,11 @@ export default function BlackjackTable() {
               {myPlayer.canSplit && (
                 <button type="button" className="button" onClick={() => send({ type: "split" })}>
                   Split
+                </button>
+              )}
+              {myActiveHand.canSurrender && (
+                <button type="button" className="button" onClick={() => send({ type: "surrender" })}>
+                  Surrender
                 </button>
               )}
             </>
@@ -358,6 +389,9 @@ function BjSeat({
   const isOpen = !row || row.userId === null;
   const outcomes: readonly Outcome[] | undefined = view?.phase === "finished" ? view.outcomes[seat] : undefined;
   const allBusted = player !== undefined && player.hands.every((h) => h.busted);
+  const insured = view !== null && player !== undefined ? (view.insurance[seat] ?? 0) : 0;
+  const insurancePending = view?.phase === "insurance" && view.pendingInsurance.includes(seat);
+  const insuranceDelta = view?.phase === "finished" ? view.insuranceDeltas[seat] : undefined;
 
   // Floating delta chip + winner glow, scoped and keyed exactly like PkSeat's.
   const seatDelta = settled?.deltas[seat];
@@ -398,7 +432,18 @@ function BjSeat({
         <div className="pk-seat__badges">
           {row?.ready && <span className="ready-badge">Ready</span>}
           {row?.leavePending && <span className="pk-badge pk-badge--leaving">Leaving</span>}
-          {view?.phase !== "acting" && row && <span className="pk-badge bj-badge--bet">Next bet {row.bet.toLocaleString()}</span>}
+          {(view === null || view.phase === "finished") && row && (
+            <span className="pk-badge bj-badge--bet">Next bet {row.bet.toLocaleString()}</span>
+          )}
+          {insurancePending && <span className="pk-badge bj-badge--insurance">Insurance?</span>}
+          {insured > 0 && insuranceDelta === undefined && (
+            <span className="pk-badge bj-badge--insurance">Insured {insured.toLocaleString()}</span>
+          )}
+          {insuranceDelta !== undefined && (
+            <span className={`pk-badge ${insuranceDelta > 0 ? "bj-badge--blackjack" : "bj-badge--insurance"}`}>
+              Insurance {formatDelta(insuranceDelta)}
+            </span>
+          )}
         </div>
       )}
 
@@ -418,8 +463,11 @@ function BjSeat({
                 {hand.natural && <span className="pk-badge bj-badge--blackjack">Blackjack</span>}
                 {hand.busted && <span className="pk-badge pk-badge--fold">Bust</span>}
                 {hand.doubled && <span className="pk-badge bj-badge--doubled">Doubled</span>}
+                {hand.surrendered && <span className="pk-badge pk-badge--fold">Surrendered</span>}
                 {outcomes?.[i] && (
-                  <span className={outcomes[i] === "lose" ? "" : "pk-seat__total"}>{OUTCOME_LABEL[outcomes[i]]}</span>
+                  <span className={outcomes[i] === "lose" || outcomes[i] === "surrender" ? "" : "pk-seat__total"}>
+                    {OUTCOME_LABEL[outcomes[i]]}
+                  </span>
                 )}
               </div>
             </div>
@@ -464,7 +512,17 @@ function DealerArea({
     <>
       <p className="pk-phase">Dealer</p>
       <DealerCards view={view} reducedMotion={reducedMotion} />
-      {view.phase === "acting" ? (
+      {view.phase === "insurance" && (
+        <>
+          <p className="pk-currentbet">Dealer shows an Ace</p>
+          <p className="table-center__turn">
+            {view.pendingInsurance.includes(mySeat ?? -1)
+              ? "Insurance? Decide below"
+              : `Waiting on ${view.pendingInsurance.map(seatLabel).join(", ")} to decide on insurance`}
+          </p>
+        </>
+      )}
+      {view.phase === "acting" && (
         <>
           <p className="pk-currentbet">
             Dealer shows {view.dealerUpCard.rank === 14 ? 11 : Math.min(view.dealerUpCard.rank, 10)}
@@ -472,13 +530,18 @@ function DealerArea({
           <p className="table-center__turn">
             {view.currentTurn === mySeat ? "Your move" : `Waiting on ${seatLabel(view.currentTurn)}`}
           </p>
-          {skippedThisRound && (
-            <p className="table-center__hint">You&rsquo;re sitting out this round — it&rsquo;ll deal you back in next time.</p>
-          )}
         </>
-      ) : (
+      )}
+      {view.phase !== "finished" && skippedThisRound && (
+        <p className="table-center__hint">You&rsquo;re sitting out this round — it&rsquo;ll deal you back in next time.</p>
+      )}
+      {view.phase === "finished" && (
         <p className="pk-finished-banner">
-          {view.dealerBusted ? `Dealer busts (${view.dealerTotal})` : `Dealer stands on ${view.dealerTotal}`}
+          {view.dealerNatural
+            ? "Dealer has blackjack"
+            : view.dealerBusted
+              ? `Dealer busts (${view.dealerTotal})`
+              : `Dealer stands on ${view.dealerTotal}`}
         </p>
       )}
     </>
@@ -494,12 +557,12 @@ function DealerArea({
  * PokerTable's Board baseline convention.
  */
 function DealerCards({ view, reducedMotion }: { view: RedactedView; reducedMotion: boolean }) {
-  const sawActingRef = useRef(view.phase === "acting");
+  const sawActingRef = useRef(view.phase !== "finished");
   useEffect(() => {
-    if (view.phase === "acting") sawActingRef.current = true;
+    if (view.phase !== "finished") sawActingRef.current = true;
   }, [view.phase]);
 
-  if (view.phase === "acting") {
+  if (view.phase !== "finished") {
     return (
       <div className="pk-board">
         <PokerCard card={view.dealerUpCard} />

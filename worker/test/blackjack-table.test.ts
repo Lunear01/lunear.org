@@ -9,6 +9,7 @@ import {
   type GameState,
   type RedactedActingView,
   type RedactedFinishedView,
+  type RedactedInsuranceView,
   type Seat,
 } from "blackjack";
 import { describe, expect, it } from "vitest";
@@ -148,6 +149,12 @@ function asNextHandMessage(m: ServerMessage): NextHandMessage | null {
 function actingView(m: ServerMessage): RedactedActingView | null {
   const s = asStateMessage(m);
   if (!s || !s.view || s.view.phase !== "acting") return null;
+  return s.view;
+}
+
+function insuranceView(m: ServerMessage): RedactedInsuranceView | null {
+  const s = asStateMessage(m);
+  if (!s || !s.view || s.view.phase !== "insurance") return null;
   return s.view;
 }
 
@@ -336,14 +343,14 @@ describe("BlackjackTableDO — two seats, natural pays 3:2, not zero-sum", () =>
   });
 });
 
-describe("BlackjackTableDO — dealer natural ends the round with no player action", () => {
+describe("BlackjackTableDO — ten-up dealer natural ends the round with no player action", () => {
   it("settles straight from the deal, then auto-deals the next round when the alarm fires", async () => {
     const tableId = `bj-dealernat-${crypto.randomUUID().slice(0, 8)}`;
     const host = await registerUser("bjdnhost");
     await initTable(tableId, host.cookie, STAKE);
 
     const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
-    const shoe = buildShoe([[0, "Th", "9h"]], ["Ad", "Kd"]);
+    const shoe = buildShoe([[0, "Th", "9h"]], ["Kd", "Ad"]);
     await stub.setTestFixedDeal({ shuffledShoe: shoe });
 
     const before = await creditsOf(host.id);
@@ -513,5 +520,168 @@ describe("BlackjackTableDO — exactly-once settlement", () => {
 
     expect(await creditsOf(host.id)).toBe(afterFirst);
     expect((await ledgerRowsForRound(tableId, 1)).results).toHaveLength(1);
+  });
+});
+
+describe("BlackjackTableDO — insurance round", () => {
+  it("offers insurance on an Ace up, auto-declines a leaver, peeks a dealer natural, and pays insurance 2:1", async () => {
+    const tableId = `bj-ins-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2, p3] = await Promise.all([registerUser("bjihost"), registerUser("bjip2"), registerUser("bjip3")]);
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
+    // Dealer Ad+Kd is a natural: seat0 insures (bet 2x stake), seat1 declines, seat2 leaves mid-decision.
+    const shoe = buildShoe(
+      [
+        [0, "Th", "9h"],
+        [1, "Ac", "Kc"],
+        [2, "8s", "8d"],
+      ],
+      ["Ad", "Kd"],
+    );
+    await stub.setTestFixedDeal({ shuffledShoe: shoe });
+
+    const users = [host, p2, p3] as const;
+    const before = await Promise.all(users.map((u) => creditsOf(u.id)));
+    const sockets = [
+      await openTableSocket(tableId, host.cookie),
+      await openTableSocket(tableId, p2.cookie),
+      await openTableSocket(tableId, p3.cookie),
+    ];
+    const bet = 2 * STAKE;
+    send(sockets[0], { type: "bet", amount: bet });
+    await sockets[0].nextFrameMatching((m) => asStateMessage(m)?.seats[0]?.bet === bet);
+    await readyAllButLast(sockets);
+    send(sockets[2], { type: "ready" });
+
+    const iv = insuranceView(await sockets[0].nextFrameMatching((m) => insuranceView(m) !== null))!;
+    expect(iv.pendingInsurance).toEqual([0, 1, 2]);
+    expect(iv.dealerUpCard.id.startsWith("Ad#")).toBe(true);
+    for (let i = 0; i < sockets[0].messages.length; i++) {
+      if (insuranceView(sockets[0].messages[i]) !== null) expect(sockets[0].raw[i]).not.toContain('"Kd#');
+    }
+
+    // Game actions are refused during the insurance phase.
+    send(sockets[0], { type: "hit" });
+    expect(await sockets[0].nextFrameMatching((m) => m.type === "error")).toMatchObject({ code: "wrong-phase" });
+
+    send(sockets[0], { type: "insure" });
+    const afterInsure = insuranceView(await sockets[0].nextFrameMatching((m) => insuranceView(m)?.insurance[0] === STAKE))!;
+    expect(afterInsure.pendingInsurance).toEqual([1, 2]);
+    send(sockets[1], { type: "declineInsurance" });
+    await sockets[0].nextFrameMatching((m) => insuranceView(m)?.pendingInsurance.length === 1);
+
+    // Seat2 leaves while its insurance call is still owed: auto-declined, the peek runs, dealer natural settles.
+    send(sockets[2], { type: "leave" });
+    const settled = (await sockets[0].nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
+
+    const expected = expectedDeltasFromReplay(
+      [0, 1, 2],
+      STAKE,
+      shoe,
+      [
+        [0, { type: "insure" }],
+        [1, { type: "declineInsurance" }],
+        [2, { type: "declineInsurance" }],
+      ],
+      { 0: bet },
+    );
+    // Seat0: 19 loses 2x stake, insurance (stake) pays 2:1 -> net 0. Seat1: natural pushes. Seat2: loses stake.
+    expect(expected).toEqual({ 0: 0, 1: 0, 2: -STAKE });
+    expect(settled.deltas).toEqual(expected);
+    for (let i = 0; i < users.length; i++) {
+      expect(await creditsOf(users[i].id)).toBe(before[i] + expected[i]);
+    }
+
+    const fv = finishedView(await sockets[0].nextFrameMatching((m) => finishedView(m) !== null))!;
+    expect(fv.dealerNatural).toBe(true);
+    expect(fv.insurance).toEqual({ 0: STAKE });
+    expect(fv.insuranceDeltas).toEqual({ 0: 2 * STAKE });
+    expect(fv.outcomes).toEqual({ 0: ["lose"], 1: ["push"], 2: ["lose"] });
+
+    const gameRow = await env.DB.prepare("SELECT result_json as resultJson FROM games WHERE id = ?")
+      .bind(`${tableId}:1`)
+      .first<{ resultJson: string }>();
+    expect(JSON.parse(gameRow!.resultJson).insurance).toEqual({ 0: STAKE });
+
+    for (const s of sockets) s.ws.close();
+  });
+
+  it("declined all round: insurance is lost when the dealer has no natural and play continues", async () => {
+    const tableId = `bj-insno-${crypto.randomUUID().slice(0, 8)}`;
+    const host = await registerUser("bjinhost");
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
+    // Dealer Ad+7d (soft 18); player 20 wins but paid the insurance.
+    const shoe = buildShoe([[0, "Th", "Jh"]], ["Ad", "7d"]);
+    await stub.setTestFixedDeal({ shuffledShoe: shoe });
+
+    const before = await creditsOf(host.id);
+    const socket = await openTableSocket(tableId, host.cookie);
+    send(socket, { type: "ready" });
+    await socket.nextFrameMatching((m) => insuranceView(m) !== null);
+    send(socket, { type: "insure" });
+    const acting = actingView(await socket.nextFrameMatching((m) => actingView(m) !== null))!;
+    expect(acting.insurance).toEqual({ 0: STAKE / 2 });
+    send(socket, { type: "stand" });
+    const settled = (await socket.nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
+    expect(settled.deltas).toEqual({ 0: STAKE - STAKE / 2 });
+    expect(await creditsOf(host.id)).toBe(before + STAKE / 2);
+
+    socket.ws.close();
+  });
+});
+
+describe("BlackjackTableDO — surrender", () => {
+  it("surrenders on the first decision for half the bet and refuses it after a hit", async () => {
+    const tableId = `bj-sur-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2] = await Promise.all([registerUser("bjshost2"), registerUser("bjsp2")]);
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
+    // Seat0 16 surrenders; seat1 hits 12 into 17 then may not surrender; dealer stands on 18.
+    const shoe = buildShoe(
+      [
+        [0, "Tc", "6c"],
+        [1, "Th", "2h"],
+      ],
+      ["Td", "8d"],
+      ["5s"],
+    );
+    await stub.setTestFixedDeal({ shuffledShoe: shoe });
+
+    const before = await Promise.all([creditsOf(host.id), creditsOf(p2.id)]);
+    const sockets = [await openTableSocket(tableId, host.cookie), await openTableSocket(tableId, p2.cookie)];
+    await readyAllButLast(sockets);
+    send(sockets[1], { type: "ready" });
+    const acting = actingView(await sockets[0].nextFrameMatching((m) => actingView(m) !== null))!;
+    expect(acting.players[0].hands[0].canSurrender).toBe(true);
+
+    send(sockets[0], { type: "surrender" });
+    const next = actingView(await sockets[1].nextFrameMatching((m) => actingView(m)?.currentTurn === 1))!;
+    expect(next.players[0].hands[0]).toMatchObject({ surrendered: true, done: true });
+
+    send(sockets[1], { type: "hit" });
+    await sockets[1].nextFrameMatching((m) => actingView(m)?.players[1].hands[0].total === 17);
+    send(sockets[1], { type: "surrender" });
+    expect(await sockets[1].nextFrameMatching((m) => m.type === "error")).toMatchObject({ code: "cannot-surrender" });
+    send(sockets[1], { type: "stand" });
+    const settled = (await sockets[0].nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
+
+    const expected = expectedDeltasFromReplay([0, 1], STAKE, shoe, [
+      [0, { type: "surrender" }],
+      [1, { type: "hit" }],
+      [1, { type: "stand" }],
+    ]);
+    expect(expected).toEqual({ 0: -STAKE / 2, 1: -STAKE }); // ceil(10 / 2) = 5; 17 loses to 18
+    expect(settled.deltas).toEqual(expected);
+    expect(await creditsOf(host.id)).toBe(before[0] + expected[0]);
+    expect(await creditsOf(p2.id)).toBe(before[1] + expected[1]);
+
+    const fv = finishedView(await sockets[0].nextFrameMatching((m) => finishedView(m) !== null))!;
+    expect(fv.outcomes).toEqual({ 0: ["surrender"], 1: ["lose"] });
+
+    for (const s of sockets) s.ws.close();
   });
 });

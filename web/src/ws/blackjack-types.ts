@@ -22,6 +22,7 @@ export type {
   PublicPlayerStatus,
   RedactedActingView,
   RedactedFinishedView,
+  RedactedInsuranceView,
   RedactedView,
   Suit,
 } from "blackjack";

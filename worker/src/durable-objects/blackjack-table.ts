@@ -42,10 +42,13 @@ export type { InitResult, TableInitParams };
 //    only the shoe.
 //  - A leave (or expired disconnect grace) mid-round auto-STANDS that seat
 //    instead of folding it — blackjack has no fold; the bet stays live and
-//    the hand can still win. The seat is freed once the round settles.
-//  - createGame can return an already-finished round (dealer natural, or
-//    every seat dealt one) — startNewHand settles it immediately instead of
-//    waiting for actions that will never come.
+//    the hand can still win. During the insurance phase it auto-DECLINES
+//    instead. The seat is freed once the round settles.
+//  - createGame can return an already-finished round (ten-up dealer natural,
+//    or every seat dealt one) — startNewHand settles it immediately instead
+//    of waiting for actions that will never come. An Ace up card instead
+//    opens the engine's insurance phase, which counts as an active round
+//    here exactly like acting does.
 //  - `handNo` counts dealt rounds (blackjack's per-seat cards are "hands",
 //    but the wire field keeps poker's name so the client hooks stay parallel).
 //  - Settlement deltas are against the house, not zero-sum — the ledger
@@ -142,6 +145,7 @@ function buildResultSummary(
     hands: Object.fromEntries(
       state.seats.map((s) => [s, state.players[s].hands.map((h) => ({ cards: h.cards, bet: h.bet }))]),
     ),
+    insurance: state.insurance,
     deltas,
     seats,
   };
@@ -513,10 +517,11 @@ export class BlackjackTableDO extends DurableObject<Env> {
   }
 
   /**
-   * Marks `seat` as leaving (freed once the current round settles) and, if
-   * it's their turn, stands them right now; otherwise resolveLeavers() stands
-   * them the instant the turn reaches them. Their bet stays live — a departed
-   * seat's stood hand can still beat the dealer and be paid on settlement.
+   * Marks `seat` as leaving (freed once the current round settles) and, if a
+   * decision is owed by them right now — their insurance call, or their turn
+   * — resolves it at once; otherwise resolveLeavers() stands them the instant
+   * the turn reaches them. Their bet stays live — a departed seat's stood
+   * hand can still beat the dealer and be paid on settlement.
    */
   private async forceStandAndMarkLeaving(seat: Seat): Promise<void> {
     this.setLeavePending(seat, true);
@@ -525,7 +530,10 @@ export class BlackjackTableDO extends DurableObject<Env> {
       this.broadcastState();
       return;
     }
-    if (state.phase === "acting" && state.currentTurn === seat) {
+    const owed =
+      (state.phase === "insurance" && state.pendingInsurance.includes(seat)) ||
+      (state.phase === "acting" && state.currentTurn === seat);
+    if (owed) {
       await this.applyNewState(state);
     } else {
       this.broadcastState();
@@ -545,17 +553,30 @@ export class BlackjackTableDO extends DurableObject<Env> {
   }
 
   /**
-   * Starting from `state`, auto-stands the current turn holder for as long as
-   * they're marked leave_pending, cascading — a client is never shown a turn
-   * belonging to a seat that already committed to leaving. Blackjack's analog
-   * of PokerTableDO's auto-fold cascade.
+   * Starting from `state`, auto-declines insurance for every leave_pending
+   * seat still owed that call, then auto-stands the current turn holder for
+   * as long as they're marked leave_pending, cascading — a client is never
+   * shown a decision belonging to a seat that already committed to leaving.
+   * Blackjack's analog of PokerTableDO's auto-fold cascade.
    */
   private resolveLeavers(state: GameState): GameState {
     let current = state;
-    while (current.phase === "acting" && this.isLeavePending(current.currentTurn)) {
-      const result = applyAction(current, current.currentTurn, { type: "stand" });
-      if (!result.ok) break; // defensive; a leave-pending seat's own turn can always legally stand
-      current = result.state;
+    for (;;) {
+      if (current.phase === "insurance") {
+        const leaver = current.pendingInsurance.find((s) => this.isLeavePending(s));
+        if (leaver === undefined) break;
+        const result = applyAction(current, leaver, { type: "declineInsurance" });
+        if (!result.ok) break; // defensive; a pending seat can always decline
+        current = result.state;
+        continue;
+      }
+      if (current.phase === "acting" && this.isLeavePending(current.currentTurn)) {
+        const result = applyAction(current, current.currentTurn, { type: "stand" });
+        if (!result.ok) break; // defensive; a leave-pending seat's own turn can always legally stand
+        current = result.state;
+        continue;
+      }
+      break;
     }
     return current;
   }
@@ -1010,5 +1031,11 @@ function toEngineAction(msg: Exclude<ClientMessage, { type: "ready" } | { type: 
       return { type: "double" };
     case "split":
       return { type: "split" };
+    case "surrender":
+      return { type: "surrender" };
+    case "insure":
+      return { type: "insure" };
+    case "declineInsurance":
+      return { type: "declineInsurance" };
   }
 }

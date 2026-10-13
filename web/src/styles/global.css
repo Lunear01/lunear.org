@@ -2157,3 +2157,31 @@ a {
   width: 6.5rem;
   text-align: center;
 }
+
+/* Insurance prompt in the self panel: one line of copy, then the two choices. */
+.bj-insurance {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.bj-insurance__label {
+  flex-basis: 100%;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-gold-light);
+}
+
+.bj-insurance__waiting {
+  margin: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.bj-badge--insurance {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-gold-light);
+}
