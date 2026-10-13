@@ -4,13 +4,20 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## TODO
 
-- [ ] Chu Dai D
-- [ ] UNO
-- [ ] Pescalo
-- [ ] Blackjack: insurance and surrender (not in scope of any plan yet)
+- [x] Chu Dai D
+- [x] UNO
+- [x] Pescalo (Go Fish)
+- [x] UNO: "call UNO" catch penalty
+- [x] Blackjack: insurance and surrender
 
 ## Recent changes
 
+- 2026-10-13 — UNO: call UNO as you play or after, catch an uncalled seat for a two-card
+  penalty. Blackjack: insurance against an Ace up card, late surrender. Plan:
+  `action-plans/uno-call-blackjack-insurance.md`.
+- 2026-10-13 — Chu Dai D (2-4 seats, HK Big Two rules), UNO (2-6 seats, own card deck and
+  `UnoCard` component), and Pescalo (Go Fish, 2-5 seats) shipped. Plan:
+  `action-plans/chudaidi-uno.md`.
 - 2026-09-12 — Blackjack: split, double down after a hit, per-seat bets with the stake as the
   minimum. Fight the Landlord and Liar's Bar hold the final play on screen before the
   settlement panel. Fight the Landlord cards select off-turn. Plan:
