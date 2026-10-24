@@ -520,7 +520,7 @@ function DealerArea({
       <DealerCards view={view} reducedMotion={reducedMotion} />
       {view.phase === "insurance" && (
         <>
-          <p className="pk-currentbet">Dealer shows an Ace</p>
+          <p className="pk-currentbet">Dealer may have blackjack</p>
           <p className="table-center__turn">
             {view.pendingInsurance.includes(mySeat ?? -1)
               ? "Insurance? Decide below"
