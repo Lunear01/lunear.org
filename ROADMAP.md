@@ -12,6 +12,9 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-13 — Chu Dai D: 3 is the highest card and 4 the lowest (straight ladder shifts to
+  4-5-6-7-8 … J-Q-K-A-2, then 2-3-4-5-6, then 3-4-5-6-7), plus a Hint button. The player who
+  made the last play is named under it in Fight the Landlord and UNO, as in Chu Dai D.
 - 2026-10-13 — UNO: call UNO as you play or after, catch an uncalled seat for a two-card
   penalty. Blackjack: insurance against an Ace up card, late surrender. Plan:
   `action-plans/uno-call-blackjack-insurance.md`.

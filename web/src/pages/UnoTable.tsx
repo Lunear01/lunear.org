@@ -548,7 +548,7 @@ function UnoCenter({
           <div className="uno-pile__stack">
             <UnoCard card={top} />
           </div>
-          <span>Discard</span>
+          <span>{view.lastPlayedBy === null ? "Discard" : seatLabel(seats, view.lastPlayedBy, mySeat)}</span>
         </div>
       </div>
 

@@ -47,6 +47,8 @@ export interface PlayingState {
   readonly unoVulnerable: Seat | null;
   /** Seats that called UNO and still hold one card. */
   readonly unoCalled: readonly Seat[];
+  /** Seat that played the top discard; null before the first play. */
+  readonly lastPlayedBy: Seat | null;
   readonly lastEvents: readonly GameEvent[];
 }
 
@@ -61,6 +63,7 @@ export interface FinishedState {
   readonly points: Readonly<Record<Seat, number>>;
   readonly discardPile: readonly Card[];
   readonly currentColor: Color;
+  readonly lastPlayedBy: Seat | null;
   readonly lastEvents: readonly GameEvent[];
 }
 
@@ -161,6 +164,7 @@ export function createGame(options: CreateGameOptions): PlayingState {
     pendingDraw: null,
     unoVulnerable: null,
     unoCalled: [],
+    lastPlayedBy: null,
     lastEvents: [],
   };
 }
@@ -361,6 +365,7 @@ function applyPlay(
       pendingDraw: null,
       unoVulnerable: oneLeft && !called ? seat : null,
       unoCalled,
+      lastPlayedBy: seat,
       lastEvents: events,
     },
   };
@@ -429,6 +434,7 @@ function finish(
     points,
     discardPile,
     currentColor,
+    lastPlayedBy: winner,
     lastEvents,
   };
 }
@@ -454,6 +460,7 @@ export interface RedactedPlayingView {
   readonly pendingDraw: string | null;
   readonly unoVulnerable: Seat | null;
   readonly unoCalled: readonly Seat[];
+  readonly lastPlayedBy: Seat | null;
   readonly lastEvents: readonly GameEvent[];
 }
 
@@ -484,6 +491,7 @@ export function viewFor(state: GameState, viewer: Seat): RedactedView {
     pendingDraw: viewer === state.currentTurn ? state.pendingDraw : null,
     unoVulnerable: state.unoVulnerable,
     unoCalled: state.unoCalled,
+    lastPlayedBy: state.lastPlayedBy,
     lastEvents: state.lastEvents,
   };
 }

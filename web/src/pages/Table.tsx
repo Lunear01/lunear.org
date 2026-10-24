@@ -7,7 +7,7 @@ import { suggestPlay } from "doudizhu";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
 import { sortForHand } from "../ws/cards";
-import type { ClientMessage, ErrorCode, ErrorMessage, Seat, SeatStatus } from "../ws/types";
+import type { ClientMessage, Combo, ErrorCode, ErrorMessage, Seat, SeatStatus } from "../ws/types";
 import { useGameSocket } from "../ws/useGameSocket";
 
 // This table page is doudizhu-specific (see the `suggestPlay` import above),
@@ -35,6 +35,23 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
   "table-aborted": "This game has ended.",
+};
+
+const COMBO_NAMES: Record<Combo["category"], string> = {
+  single: "Single",
+  pair: "Pair",
+  triple: "Triple",
+  triplePlusSingle: "Triple + single",
+  triplePlusPair: "Triple + pair",
+  straight: "Straight",
+  pairStraight: "Pair straight",
+  plane: "Plane",
+  planePlusSingles: "Plane + singles",
+  planePlusPairs: "Plane + pairs",
+  fourPlusTwoSingles: "Four + two singles",
+  fourPlusTwoPairs: "Four + two pairs",
+  bomb: "Bomb",
+  rocket: "Rocket",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -426,11 +443,16 @@ function CenterArea({
         <div>
           <div>
             {view.lastPlay ? (
-              <div className="table-cardrow table-cardrow--lastplay">
-                {sortForHand(view.lastPlay.combo.cards).map((c) => (
-                  <PlayingCard key={c.id} card={c} />
-                ))}
-              </div>
+              <>
+                <div className="table-cardrow table-cardrow--lastplay">
+                  {sortForHand(view.lastPlay.combo.cards).map((c) => (
+                    <PlayingCard key={c.id} card={c} />
+                  ))}
+                </div>
+                <p className="table-center__hint">
+                  {seatLabel(seats, view.lastPlay.seat)} · {COMBO_NAMES[view.lastPlay.combo.category]}
+                </p>
+              </>
             ) : (
               <p className="table-center__hint">Free lead — play anything</p>
             )}
