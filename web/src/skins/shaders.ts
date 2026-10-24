@@ -1,5 +1,6 @@
 // GLSL ES 1.0 for the animated skins. Each draw fills one atlas cell;
 // u_seed varies the pattern per cell so neighbouring cards differ.
+// u_face = 1 renders the dimmed, frameless card-front variant.
 
 export const VERTEX = `
 attribute vec2 a_pos;
@@ -15,6 +16,7 @@ precision highp float;
 varying vec2 v_uv;
 uniform float u_time;
 uniform float u_seed;
+uniform float u_face;
 
 float hash(vec2 p) {
   p = fract(p * vec2(123.34, 456.21));
@@ -45,6 +47,11 @@ float fbm(vec2 p) {
     a *= 0.5;
   }
   return v;
+}
+
+vec3 fireRamp(float x) {
+  x = clamp(x, 0.0, 1.0);
+  return vec3(min(1.0, x * 1.9), pow(x, 1.8) * 1.15, pow(x, 4.5) * 1.1);
 }
 
 // Card space: x in [-1, 1], y in [-1.4, 1.4].
@@ -109,19 +116,21 @@ void main() {
   float emblem = smoothstep(0.035, 0.0, abs(diamond - 0.42))
                + smoothstep(0.03, 0.0, abs(length(p) - 0.62)) * 0.55;
   float pulse = 0.6 + 0.4 * sin(t * 1.4);
-  col += vec3(1.0, 0.8, 0.45) * emblem * (0.6 + 0.5 * pulse);
-  col += vec3(0.8, 0.5, 1.0) * 0.12 / (0.05 + diamond * diamond) * 0.08 * pulse;
+  float frame = 1.0 - u_face;
+  col += vec3(1.0, 0.8, 0.45) * emblem * (0.6 + 0.5 * pulse) * frame;
+  col += vec3(0.8, 0.5, 1.0) * 0.12 / (0.05 + diamond * diamond) * 0.08 * pulse * frame;
 
   // Gold rim with a glint that orbits the card.
   float d = rimDist(p, 0.07);
   float rim = smoothstep(0.035, 0.0, abs(d));
   float a = atan(p.y, p.x * 1.4);
   float glint = pow(0.5 + 0.5 * cos(a - t * 1.3), 40.0);
-  col = mix(col, vec3(0.85, 0.62, 0.25) + glint * 0.9, rim);
-  col += vec3(1.0, 0.85, 0.5) * glint * smoothstep(0.12, 0.0, abs(d)) * 0.35;
+  col = mix(col, vec3(0.85, 0.62, 0.25) + glint * 0.9, rim * frame);
+  col += vec3(1.0, 0.85, 0.5) * glint * smoothstep(0.12, 0.0, abs(d)) * 0.35 * frame;
 
   float vig = smoothstep(1.9, 0.6, length(p * vec2(1.0, 0.75)));
   col *= 0.7 + 0.3 * vig;
+  col *= mix(1.0, 0.42, u_face);
 
   gl_FragColor = vec4(pow(col, vec3(0.9)), 1.0);
 }
@@ -145,11 +154,6 @@ vec2 voronoi(vec2 p, float t) {
     }
   }
   return vec2(f1, f2 - f1);
-}
-
-vec3 fireRamp(float x) {
-  x = clamp(x, 0.0, 1.0);
-  return vec3(min(1.0, x * 1.9), pow(x, 1.8) * 1.15, pow(x, 4.5) * 1.1);
 }
 
 void main() {
@@ -197,11 +201,94 @@ void main() {
   float d = rimDist(p, 0.06);
   float rim = smoothstep(0.05, 0.0, abs(d));
   vec3 iron = vec3(0.07, 0.05, 0.045) + vec3(0.16, 0.12, 0.09) * pow(0.5 + 0.5 * sin(p.x * 3.0 + p.y * 2.0), 4.0);
-  col = mix(col, iron, rim);
+  float frame = 1.0 - u_face;
+  col = mix(col, iron, rim * frame);
   float inner = smoothstep(0.05, 0.0, abs(d + 0.06));
-  col += fireRamp(0.55 + 0.3 * heat) * inner * (0.18 + 0.3 * heat);
+  col += fireRamp(0.55 + 0.3 * heat) * inner * (0.18 + 0.3 * heat) * frame;
 
   col *= 0.75 + 0.35 * core;
+  col *= mix(1.0, 0.5, u_face);
   gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+// Full-screen big-moment overlays. Premultiplied alpha over the table;
+// u_fade is the 0..1 envelope, u_res the canvas size in pixels.
+const MOMENT_HEAD = COMMON + `
+uniform vec2 u_res;
+uniform float u_fade;
+
+vec2 screenSpace() {
+  return (v_uv - 0.5) * vec2(u_res.x / u_res.y, 1.0) * 2.0;
+}
+
+void emit(vec3 col) {
+  // Capped so the table stays readable underneath.
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 0.8) * u_fade;
+  gl_FragColor = vec4(min(col, vec3(1.0)) * u_fade, a);
+}
+`;
+
+export const GALAXY = MOMENT_HEAD + `
+void main() {
+  vec2 p = screenSpace();
+  float t = u_time;
+  float r = length(p);
+  float a = atan(p.y, p.x);
+
+  // Two logarithmic spiral arms, wound tighter as they spin.
+  float spin = a + log(r + 0.05) * 2.6 - t * 1.4;
+  float arms = pow(0.5 + 0.5 * cos(spin * 2.0), 2.5);
+  float n = fbm(vec2(spin * 0.9, r * 5.0 - t * 0.6));
+  float density = arms * (0.45 + 0.9 * n) * exp(-r * 1.35);
+  vec3 col = mix(vec3(0.35, 0.08, 0.85), vec3(0.15, 0.85, 1.0), n) * density * 2.4;
+  col += mix(vec3(1.0, 0.4, 0.8), vec3(1.0, 0.95, 0.85), exp(-r * 9.0)) * exp(-r * r * 10.0) * 1.6;
+
+  // Stars drawn inward along the spiral.
+  vec2 sp = vec2(a / 6.2831 + t * 0.05 + 0.6 / (r + 0.3), r * 3.0);
+  vec2 g = sp * vec2(40.0, 14.0);
+  vec2 id = floor(g);
+  float h = hash(id);
+  float star = step(0.9, h) * smoothstep(0.35, 0.0, length(fract(g) - 0.5));
+  col += vec3(0.9, 0.9, 1.0) * star * (0.6 + 0.4 * sin(t * 5.0 + h * 40.0)) * smoothstep(1.8, 0.2, r);
+
+  // Opening shock ring.
+  float ring = smoothstep(0.05, 0.0, abs(r - t * 1.6)) * exp(-t * 1.1);
+  col += vec3(0.85, 0.75, 1.0) * ring * 2.5;
+
+  emit(col);
+}
+`;
+
+export const ERUPTION = MOMENT_HEAD + `
+void main() {
+  vec2 p = screenSpace();
+  float t = u_time;
+  float y = v_uv.y;
+
+  // Plume rises from the bottom centre and widens as it climbs.
+  float rise = clamp(t * 1.1, 0.0, 1.3);
+  float width = 0.2 + 0.75 * y;
+  float x = abs(p.x + 0.18 * sin(y * 7.0 - t * 3.5) * y) / width;
+  float body = smoothstep(1.0, 0.15, x) * smoothstep(rise, rise - 0.45, y);
+  float n = fbm(vec2(p.x * 3.0, y * 4.5 - t * 3.0));
+  vec3 col = fireRamp(body * (0.45 + 0.6 * n)) * 0.8;
+
+  // Screen-edge heat glow.
+  vec2 e = min(v_uv, 1.0 - v_uv);
+  float edge = exp(-min(e.x * u_res.x / u_res.y, e.y) * 9.0);
+  col += fireRamp(0.6 + 0.2 * sin(t * 7.0)) * edge * 0.6;
+
+  // Ember spray.
+  for (int i = 0; i < 40; i++) {
+    float fi = float(i);
+    vec2 h = hash2(vec2(fi, 7.0));
+    float life = fract(h.y + t * (0.35 + h.x * 0.4));
+    vec2 pos = vec2((h.x - 0.5) * (0.4 + life * 2.2), -1.0 + life * 2.4 - life * life * 0.6);
+    vec2 d = (p - pos) * vec2(1.0, 0.7);
+    col += fireRamp(1.0 - life * 0.6) * exp(-dot(d, d) * 1800.0) * (1.0 - life) * 2.2;
+  }
+
+  emit(col);
 }
 `;

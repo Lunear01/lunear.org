@@ -43,20 +43,29 @@
   background: radial-gradient(ellipse at 50% 60%, var(--color-felt-light), var(--color-felt-dark));
 }
 
-.shop-item__card {
+.shop-item__preview {
+  position: relative;
+}
+
+.shop-item__preview > .card-back,
+.shop-item__preview > .playing-card {
   width: 92px;
   height: 129px;
   margin-left: -46px;
-  transition: transform 0.2s ease;
+  --card-w: 92px;
 }
 
-.shop-item__card:first-child {
+.shop-item__preview > :first-child {
   margin-left: 0;
   transform: rotate(-10deg) translateY(8px);
 }
 
-.shop-item__card:last-child {
+.shop-item__preview > .playing-card:last-of-type {
   transform: rotate(10deg) translateY(8px);
+}
+
+.shop-item__demo {
+  margin-bottom: 0.75rem;
 }
 
 .shop-item__body {

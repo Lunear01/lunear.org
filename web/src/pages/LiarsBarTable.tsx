@@ -4,6 +4,10 @@ import { CardBack } from "../components/PlayingCard";
 import { SkinArt, seatSkin, skinHostClass } from "../skins/SkinArt";
 import { LiarsBarCard } from "../components/LiarsBarCard";
 import { useAuth } from "../context/AuthContext";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
 import type {
   ClientMessage,
   ErrorCode,
@@ -194,7 +198,7 @@ export default function LiarsBarTable() {
         </div>
 
         <div className="table-center card">
-          <LiarsBarCenter seats={seats} view={view} />
+          <LiarsBarCenter seats={seats} view={view} playKeyBase={revealSeq} />
         </div>
 
         {view && "hand" in view && (
@@ -211,10 +215,12 @@ export default function LiarsBarTable() {
               </div>
             )}
             <div className="table-hand">
-              {view.hand.map((card) => (
+              {view.hand.map((card, i) => (
                 <LiarsBarCard
                   key={card.id}
                   card={card}
+                  skin={mySeatRow?.cardSkin}
+                  index={i}
                   selected={selected.has(card.id)}
                   onClick={
                     view.phase === "playing" && mySeat === view.currentTurn ? () => toggleCard(card.id) : undefined
@@ -259,6 +265,8 @@ export default function LiarsBarTable() {
           )}
         </div>
       </div>
+
+      {view && <LiarsBarMoment seats={seats} view={view} round={round} />}
 
       {roundEndView && (
         <LiarsBarRevealOverlay
@@ -350,6 +358,7 @@ function LiarsBarOpponentSeat({
 
   return (
     <div className={`table-opponent ${isDead ? "lb-seat--dead" : ""}`}>
+      {row && !isDead && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="table-opponent__cards">
         {isDead ? (
           <span className="lb-skull" aria-label="eliminated">
@@ -382,7 +391,37 @@ function LiarsBarOpponentSeat({
   );
 }
 
-function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; view: RedactedView | null }) {
+/** The match winner's moment. Mounted from the first view so only wins seen live fire. */
+function LiarsBarMoment({
+  seats,
+  view,
+  round,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  round: number;
+}) {
+  const winner = view.phase === "finished" ? view.winner : null;
+  const held = winner !== null ? { key: `win-${round}`, seat: winner } : null;
+  const momentKey = useFreshKey(held?.key ?? null);
+  return (
+    <SkinMoment
+      skin={seatSkin(seats, held?.seat ?? -1)}
+      momentKey={momentKey}
+      label={held ? `${seatLabel(seats, held.seat)} wins` : ""}
+    />
+  );
+}
+
+function LiarsBarCenter({
+  seats,
+  view,
+  playKeyBase,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView | null;
+  playKeyBase: number;
+}) {
   if (!view) {
     const filled = seats?.length ?? 0;
     if (filled < MIN_PLAYERS) {
@@ -390,6 +429,23 @@ function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; 
     }
     return <p className="table-center__hint">{filled}/4 seated — everyone ready starts the game.</p>;
   }
+  return <LiarsBarPlay seats={seats} view={view} playKeyBase={playKeyBase} />;
+}
+
+// Split from LiarsBarCenter so the burst key's mount-time snapshot is the first view, not the empty table.
+function LiarsBarPlay({
+  seats,
+  view,
+  playKeyBase,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  playKeyBase: number;
+}) {
+  // The face-down play carries no card ids; round + history length is unique per play.
+  const lastPlay = view.phase === "playing" ? view.lastPlay : null;
+  const plays = view.phase === "playing" ? view.history.length : 0;
+  const burstKey = useFreshKey(lastPlay ? `${playKeyBase}-${plays}-${lastPlay.seat}` : null);
 
   switch (view.phase) {
     case "playing":
@@ -398,10 +454,13 @@ function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; 
           <p className="lb-tablerank">Table: {TABLE_RANK_NAMES[view.tableRank]}</p>
           {view.lastPlay ? (
             <div className="lb-lastplay">
-              <div className="table-cardrow">
-                {Array.from({ length: view.lastPlay.cardCount }).map((_, i) => (
-                  <CardBack key={i} skin={seatSkin(seats, view.lastPlay!.seat)} index={i} />
-                ))}
+              <div className="fx-host">
+                <div className="table-cardrow">
+                  {Array.from({ length: view.lastPlay.cardCount }).map((_, i) => (
+                    <CardBack key={i} skin={seatSkin(seats, view.lastPlay!.seat)} index={i} />
+                  ))}
+                </div>
+                <SkinBurst skin={seatSkin(seats, view.lastPlay.seat)} burstKey={burstKey} />
               </div>
               <p className="table-center__hint">
                 {seatLabel(seats, view.lastPlay.seat)} played {view.lastPlay.cardCount} card
@@ -476,7 +535,7 @@ function LiarsBarRevealOverlay({
                   <SkinArt skin={seatSkin(seats, lastReveal.playSeat)} index={i} />
                 </div>
                 <div className="lb-flip__face lb-flip__face--front">
-                  <LiarsBarCard card={card} />
+                  <LiarsBarCard card={card} skin={seatSkin(seats, lastReveal.playSeat)} index={i} />
                 </div>
               </div>
             </div>

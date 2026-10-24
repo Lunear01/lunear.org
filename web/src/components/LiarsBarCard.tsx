@@ -1,3 +1,5 @@
+import type { SkinId } from "worker/src/shop/catalog";
+import { useSkinFace } from "../skins/SkinArt";
 import type { Card } from "../ws/liarsbar-types";
 
 interface LiarsBarCardProps {
@@ -6,6 +8,10 @@ interface LiarsBarCardProps {
   small?: boolean;
   /** Omit to render a non-interactive (revealed/history) card. */
   onClick?: () => void;
+  /** Owning seat's skin; shared cards stay classic. */
+  skin?: SkinId;
+  /** Position in a row, for skin variant and stagger. */
+  index?: number;
 }
 
 /**
@@ -18,19 +24,22 @@ interface LiarsBarCardProps {
  * selection lift) as-is — only the rank glyph markup differs, so no new
  * card-face CSS was needed.
  */
-export function LiarsBarCard({ card, selected = false, small = false, onClick }: LiarsBarCardProps) {
+export function LiarsBarCard({ card, selected = false, small = false, onClick, skin, index }: LiarsBarCardProps) {
+  const { ref, faceClass, faceArt } = useSkinFace<HTMLButtonElement>(skin, index);
   const isJoker = card.rank === "JOKER";
   const classes = [
     "playing-card",
     small && "playing-card--small",
     isJoker ? "playing-card--joker" : "playing-card--black",
     selected && "playing-card--selected",
+    faceClass,
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <button
+      ref={ref}
       type="button"
       className={classes}
       onClick={onClick}
@@ -38,6 +47,7 @@ export function LiarsBarCard({ card, selected = false, small = false, onClick }:
       aria-pressed={onClick ? selected : undefined}
       aria-label={isJoker ? "Joker" : card.rank}
     >
+      {faceArt}
       {isJoker ? (
         <>
           <span className="playing-card__index playing-card__index--joker" aria-hidden="true">

@@ -112,23 +112,149 @@
   box-shadow: inset 0 0 12px 2px rgba(255, 110, 20, 0.9);
 }
 
-.skin-art__glint {
+/* ---------- Ambient layers (Ambient.tsx) ---------- */
+
+/* Card-sized track; Motion translates it in % of the card. */
+.fx-track {
   position: absolute;
-  top: -20%;
-  bottom: -20%;
-  left: 0;
-  width: 45%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.05) 25%,
-    rgba(255, 255, 255, 0.55) 50%,
-    rgba(255, 255, 255, 0.05) 75%,
-    transparent
-  );
+  inset: 0;
+  pointer-events: none;
+}
+
+.fx-comet {
+  position: absolute;
+  left: 20%;
+  top: 48%;
+  width: 70%;
+  height: 3%;
+  min-height: 2px;
+  border-radius: 999px;
+  transform: rotate(54deg);
+  background: linear-gradient(90deg, transparent, rgba(140, 200, 255, 0.35) 55%, rgba(220, 240, 255, 0.95) 92%, #fff);
+  box-shadow: 0 0 6px rgba(170, 210, 255, 0.9);
   mix-blend-mode: screen;
 }
 
-.skin-art--molten-core .skin-art__glint {
-  background: linear-gradient(90deg, transparent, rgba(255, 190, 90, 0.5) 50%, transparent);
+.fx-spark {
+  position: absolute;
+  width: 16%;
+  aspect-ratio: 1;
+  margin: -8% 0 0 -8%;
+  background:
+    linear-gradient(90deg, transparent 44%, #fff 50%, transparent 56%),
+    linear-gradient(0deg, transparent 44%, #fff 50%, transparent 56%),
+    radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 8%, rgba(200, 160, 255, 0.5) 18%, transparent 40%);
+  mix-blend-mode: screen;
+}
+
+.fx-heat {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 40%;
+  height: 22%;
+  background: linear-gradient(0deg, transparent, rgba(255, 150, 40, 0.45) 45%, rgba(255, 220, 140, 0.5) 55%, transparent);
+  filter: blur(2px);
+  mix-blend-mode: screen;
+}
+
+.fx-ember {
+  position: absolute;
+  bottom: 4%;
+  width: 6%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff3c4 0 25%, #ffae3d 45%, rgba(255, 80, 0, 0) 72%);
+  mix-blend-mode: screen;
+}
+
+/* ---------- Card fronts (useSkinFace) ---------- */
+
+.face-art {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.face-host > :not(.face-art) {
+  z-index: 1;
+}
+
+.face-host::before {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Midnight Deco */
+.playing-card.face--midnight-deco {
+  background: radial-gradient(ellipse at 50% 40%, #fbf6ea, #efe6d0);
+  border-color: #c9a24a;
+  font-family: Georgia, "Times New Roman", serif;
+}
+.playing-card.face--midnight-deco::before {
+  inset: 3px;
+  border: 1px solid #14234d;
+  outline: 1px solid rgba(201, 162, 74, 0.8);
+  outline-offset: 1px;
+  border-radius: 3px;
+  clip-path: polygon(0 8%, 8% 8%, 8% 0, 92% 0, 92% 8%, 100% 8%, 100% 92%, 92% 92%, 92% 100%, 8% 100%, 8% 92%, 0 92%);
+}
+.playing-card--black.face--midnight-deco { color: #14234d; }
+.playing-card--red.face--midnight-deco { color: #a3202b; }
+.playing-card--joker.face--midnight-deco { color: #9c6f22; }
+
+/* Crimson Lacquer */
+.playing-card.face--crimson-lacquer {
+  background: #fbf6ea;
+  border-color: #6d0a12;
+}
+.playing-card.face--crimson-lacquer::before {
+  inset: 0;
+  border: 3px solid #9a0f19;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px #d9a441;
+}
+.playing-card--black.face--crimson-lacquer { color: #111; }
+.playing-card--red.face--crimson-lacquer { color: #b3121f; }
+.playing-card--joker.face--crimson-lacquer { color: #9a0f19; }
+
+/* Nebula */
+.playing-card.face--nebula {
+  background: #0b0820;
+  border-color: #b58cff;
+}
+.playing-card--black.face--nebula { color: #9fe8ff; text-shadow: 0 0 5px rgba(80, 200, 255, 0.9); }
+.playing-card--red.face--nebula { color: #ff9ae0; text-shadow: 0 0 5px rgba(255, 90, 200, 0.9); }
+.playing-card--joker.face--nebula { color: #ffe08a; text-shadow: 0 0 6px rgba(255, 210, 120, 0.95); }
+
+/* Molten Core */
+.playing-card.face--molten-core {
+  background: #120806;
+  border-color: #6a3214;
+}
+.playing-card--black.face--molten-core { color: #efe8e2; text-shadow: 0 0 4px rgba(255, 120, 40, 0.75); }
+.playing-card--red.face--molten-core { color: #ffb347; text-shadow: 0 0 6px rgba(255, 90, 0, 0.95); }
+.playing-card--joker.face--molten-core { color: #fff1b0; text-shadow: 0 0 7px rgba(255, 140, 0, 1); }
+
+.face--nebula .playing-card__pip,
+.face--molten-core .playing-card__pip {
+  opacity: 0.55;
+}
+
+/* UNO fronts keep their colour field; skins restyle border and oval. */
+.uno-card.face--midnight-deco { border-color: #d9a441; }
+.uno-card.face--midnight-deco .uno-card__oval { box-shadow: 0 0 0 2px #14234d, 0 0 0 3px #d9a441; }
+.uno-card.face--crimson-lacquer { border-color: #120203; }
+.uno-card.face--crimson-lacquer::before { inset: 1px; border: 1px solid #d9a441; border-radius: inherit; }
+.uno-card.face--nebula { border-color: #c9a6ff; box-shadow: 0 0 8px rgba(180, 130, 255, 0.8); }
+.uno-card.face--molten-core { border-color: #2a160c; box-shadow: 0 0 8px rgba(255, 110, 20, 0.85); }
+.uno-card.face--nebula .face-art,
+.uno-card.face--molten-core .face-art {
+  mix-blend-mode: screen;
+  opacity: 0.55;
 }

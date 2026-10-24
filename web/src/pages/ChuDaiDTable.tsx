@@ -4,7 +4,13 @@ import { useNavigate, useParams } from "react-router-dom";
 import { sortHand, suggestPlay } from "chudaidi";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
+import { seatSkin } from "../skins/SkinArt";
 import type {
+  Combo,
   ComboCategory,
   ErrorCode,
   ErrorMessage,
@@ -78,7 +84,7 @@ export default function ChuDaiDTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError } = useChuDaiDSocket(tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError } = useChuDaiDSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -205,10 +211,12 @@ export default function ChuDaiDTable() {
               </div>
             )}
             <div className="table-hand">
-              {sortCards(view.hand).map((card) => (
+              {sortCards(view.hand).map((card, i) => (
                 <PlayingCard
                   key={card.id}
                   card={card}
+                  skin={mySeatRow?.cardSkin}
+                  index={i}
                   selected={selected.has(card.id)}
                   // Selectable off-turn so a play can be lined up while waiting.
                   onClick={() => toggleCard(card.id)}
@@ -220,8 +228,8 @@ export default function ChuDaiDTable() {
 
         {finishedView && mySeat !== null && finishedView.hands[mySeat].length > 0 && (
           <div className="table-hand">
-            {sortCards(finishedView.hands[mySeat]).map((card) => (
-              <PlayingCard key={card.id} card={card} />
+            {sortCards(finishedView.hands[mySeat]).map((card, i) => (
+              <PlayingCard key={card.id} card={card} skin={mySeatRow?.cardSkin} index={i} />
             ))}
           </div>
         )}
@@ -269,6 +277,8 @@ export default function ChuDaiDTable() {
           )}
         </div>
       </div>
+
+      {view && <ChuDaiDMoment seats={seats} view={view} round={round} />}
 
       {settled && !aborted && settledVisible && (
         <div className="settled-overlay">
@@ -358,14 +368,15 @@ function ChuDaiDOpponentSeat({
 
   return (
     <div className={`table-opponent cd-opponent ${isTurn ? "cd-opponent--turn" : ""}`}>
+      <SeatAura skin={row.cardSkin} active={isTurn} />
       <div className="table-opponent__cards">
         {count !== null && count > 0 && view?.phase === "playing"
           ? Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)
           : null}
         {view?.phase === "finished" && inGame && count !== null && count > 0 && (
           <div className="cd-revealed">
-            {sortCards(view.hands[seat]).map((c) => (
-              <PlayingCard key={c.id} card={c} small />
+            {sortCards(view.hands[seat]).map((c, i) => (
+              <PlayingCard key={c.id} card={c} small skin={row.cardSkin} index={i} />
             ))}
           </div>
         )}
@@ -399,6 +410,54 @@ function lastActionWasPass(history: readonly PlayRecord[], seat: Seat, lastPlayS
   return false;
 }
 
+/** The winner's moment. Mounted from the first view so only wins seen live fire. */
+function ChuDaiDMoment({
+  seats,
+  view,
+  round,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  round: number;
+}) {
+  const winner = view.phase === "finished" ? view.winner : null;
+  const held = winner !== null ? { key: `win-${round}`, seat: winner } : null;
+  const momentKey = useFreshKey(held?.key ?? null);
+  return (
+    <SkinMoment
+      skin={seatSkin(seats, held?.seat ?? -1)}
+      momentKey={momentKey}
+      label={held ? `${seatLabel(seats, held.seat)} wins` : ""}
+    />
+  );
+}
+
+function playIds(combo: Combo): string {
+  return combo.cards.map((c) => c.id).join(",");
+}
+
+function PlayRow({
+  seats,
+  play,
+  burstKey,
+}: {
+  seats: readonly SeatStatus[] | null;
+  play: { seat: Seat; combo: Combo };
+  burstKey: string | null;
+}) {
+  const skin = seatSkin(seats, play.seat);
+  return (
+    <div className="fx-host">
+      <div className="table-cardrow table-cardrow--lastplay">
+        {sortCards(play.combo.cards).map((c, i) => (
+          <PlayingCard key={c.id} card={c} skin={skin} index={i} />
+        ))}
+      </div>
+      <SkinBurst skin={skin} burstKey={burstKey} />
+    </div>
+  );
+}
+
 function ChuDaiDCenter({ seats, view }: { seats: readonly SeatStatus[] | null; view: RedactedView | null }) {
   if (!view) {
     const filled = seats?.length ?? 0;
@@ -415,17 +474,22 @@ function ChuDaiDCenter({ seats, view }: { seats: readonly SeatStatus[] | null; v
       </p>
     );
   }
+  return <ChuDaiDPlay seats={seats} view={view} />;
+}
+
+// Split from ChuDaiDCenter so the burst key's mount-time snapshot is the first view, not the empty table.
+function ChuDaiDPlay({ seats, view }: { seats: readonly SeatStatus[] | null; view: RedactedView }) {
+  const finalPlay = view.phase === "finished" ? [...view.history].reverse().find((h) => h.combo !== null) : undefined;
+  const play =
+    view.phase === "playing" ? view.lastPlay : finalPlay?.combo ? { seat: finalPlay.seat, combo: finalPlay.combo } : null;
+  const burstKey = useFreshKey(play ? `${play.seat}-${playIds(play.combo)}` : null);
 
   if (view.phase === "playing") {
     return (
       <div>
         {view.lastPlay ? (
           <>
-            <div className="table-cardrow table-cardrow--lastplay">
-              {sortCards(view.lastPlay.combo.cards).map((c) => (
-                <PlayingCard key={c.id} card={c} />
-              ))}
-            </div>
+            <PlayRow seats={seats} play={view.lastPlay} burstKey={burstKey} />
             <p className="table-center__hint">
               {seatLabel(seats, view.lastPlay.seat)} · {COMBO_NAMES[view.lastPlay.combo.category]}
             </p>
@@ -442,16 +506,9 @@ function ChuDaiDCenter({ seats, view }: { seats: readonly SeatStatus[] | null; v
     );
   }
 
-  const finalPlay = [...view.history].reverse().find((h) => h.combo !== null);
   return (
     <div>
-      {finalPlay?.combo && (
-        <div className="table-cardrow table-cardrow--lastplay">
-          {sortCards(finalPlay.combo.cards).map((c) => (
-            <PlayingCard key={c.id} card={c} />
-          ))}
-        </div>
-      )}
+      {play && <PlayRow seats={seats} play={play} burstKey={burstKey} />}
       <p className="table-center__turn">{seatLabel(seats, view.winner)} goes out</p>
     </div>
   );

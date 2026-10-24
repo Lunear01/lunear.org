@@ -6,6 +6,9 @@ import { FlipBack } from "../components/PlayingCard";
 import { PokerCard, PokerCardSlot } from "../components/PokerCard";
 import { useAuth } from "../context/AuthContext";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
 import { seatSkin } from "../skins/SkinArt";
 import type {
   Card,
@@ -298,6 +301,7 @@ export default function PokerTable() {
   const terminalView = view !== null && !isBettingView(view) ? view : null;
   const myBadge = mySeat !== null ? seatBadgeInfo(view, mySeat) : null;
   const myHoleCards = bettingView?.holeCards ?? null;
+  const mySkin = mySeat !== null ? seatSkin(seats, mySeat) : "classic";
   const myBettingStatus: PublicBettingStatus | null =
     bettingView && mySeat !== null ? bettingView.players[mySeat] : null;
 
@@ -321,6 +325,8 @@ export default function PokerTable() {
           {friendlyError(error)}
         </div>
       )}
+
+      <PokerMoment view={view} handNo={handNo} seats={seats} seatLabel={seatLabel} />
 
       <div className="pk-felt">
         <div className="pk-seats-col">
@@ -370,8 +376,8 @@ export default function PokerTable() {
       <div className="pk-self">
         {myHoleCards && (
           <div className="pk-self__cards" key={myHoleCards.map((c) => c.id).join(",")}>
-            <PokerCard card={myHoleCards[0]} big />
-            <PokerCard card={myHoleCards[1]} big />
+            <PokerCard card={myHoleCards[0]} big skin={mySkin} index={0} />
+            <PokerCard card={myHoleCards[1]} big skin={mySkin} index={1} />
           </div>
         )}
         {myBadge && <p className="pk-self__committed">Your total this hand: {myBadge.committed.toLocaleString()}</p>}
@@ -410,6 +416,45 @@ export default function PokerTable() {
       )}
     </div>
   );
+}
+
+interface Moment {
+  key: string;
+  skin: SkinId;
+  label: string;
+}
+
+/** Pot win, once per hand. A hand already over at page load doesn't replay. */
+function PokerMoment({
+  view,
+  handNo,
+  seats,
+  seatLabel,
+}: {
+  view: RedactedView | null;
+  handNo: number;
+  seats: readonly SeatStatus[];
+  seatLabel: (seat: Seat) => string;
+}) {
+  let moment: Moment | null = null;
+  if (view?.phase === "showdown") {
+    const winner = view.winners[0];
+    moment = {
+      key: `hand:${handNo}`,
+      skin: seatSkin(seats, winner),
+      label: `${seatLabel(winner)} wins ${(view.amountWon[winner] ?? 0).toLocaleString()}`,
+    };
+  } else if (view?.phase === "finished") {
+    moment = {
+      key: `hand:${handNo}`,
+      skin: seatSkin(seats, view.winner),
+      label: `${seatLabel(view.winner)} wins ${view.pot.toLocaleString()}`,
+    };
+  }
+  const fresh = useFreshKey(moment?.key ?? null);
+  // After the showdown flips (300ms stagger per row, ~500ms flip).
+  const delayMs = view?.phase === "showdown" ? view.reveals.length * 300 + 600 : 0;
+  return <SkinMoment skin={moment?.skin ?? "classic"} momentKey={fresh} label={moment?.label ?? ""} delayMs={delayMs} />;
 }
 
 function PkSeat({
@@ -462,6 +507,7 @@ function PkSeat({
 
   return (
     <div className={classes}>
+      {row && !isOpen && <SeatAura skin={row.cardSkin} active={isCurrentTurn} />}
       {showResult && delta !== 0 && (
         <span key={settled?.handNo} className={`pk-delta-chip ${delta > 0 ? "pk-delta-chip--gain" : "pk-delta-chip--loss"}`}>
           {formatDelta(delta)}
@@ -745,7 +791,7 @@ function ShowdownRow({
           <div className="flip__inner">
             <FlipBack skin={skin} index={0} />
             <div className="flip__face flip__face--front">
-              <PokerCard card={reveal.holeCards[0]} />
+              <PokerCard card={reveal.holeCards[0]} skin={skin} index={0} />
             </div>
           </div>
         </div>
@@ -753,7 +799,7 @@ function ShowdownRow({
           <div className="flip__inner">
             <FlipBack skin={skin} index={1} />
             <div className="flip__face flip__face--front">
-              <PokerCard card={reveal.holeCards[1]} />
+              <PokerCard card={reveal.holeCards[1]} skin={skin} index={1} />
             </div>
           </div>
         </div>

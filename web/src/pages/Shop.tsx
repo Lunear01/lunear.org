@@ -4,8 +4,17 @@ import type { SkinId, SkinItem } from "worker/src/shop/catalog";
 import { ApiError } from "../api/client";
 import { type ShopState, buyItem, equipItem, fetchShop } from "../api/shop";
 import { useAuth } from "../context/AuthContext";
+import { PokerCard } from "../components/PokerCard";
 import { SkinArt, skinHostClass } from "../skins/SkinArt";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import type { Card } from "../ws/poker-types";
 import "../styles/shop.css";
+
+const PREVIEW_FRONTS: Card[] = [
+  { id: "preview-as", rank: 14, suit: "s" },
+  { id: "preview-kh", rank: 13, suit: "h" },
+];
 
 const KIND_LABEL: Record<SkinItem["kind"], string> = { default: "Default", static: "Static", animated: "Animated" };
 
@@ -90,6 +99,7 @@ function ShopItem({
   onEquip: () => void;
 }) {
   const affordable = credits >= item.price;
+  const [demo, setDemo] = useState(0);
   let action;
   if (equipped) {
     action = <span className="shop-item__equipped">Equipped</span>;
@@ -116,18 +126,27 @@ function ShopItem({
   return (
     <div className={`shop-item ${equipped ? "shop-item--equipped" : ""}`}>
       <div className="shop-item__preview" aria-hidden="true">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className={`card-back shop-item__card ${skinHostClass(item.id)}`}>
-            <SkinArt skin={item.id} index={i} />
-          </div>
+        <div className={`card-back shop-item__card ${skinHostClass(item.id)}`}>
+          <SkinArt skin={item.id} index={0} />
+        </div>
+        {PREVIEW_FRONTS.map((card, i) => (
+          // Keyed by demo so the entrance replays with the effects preview.
+          <PokerCard key={`${card.id}-${demo}`} card={card} skin={item.id} index={i + 1} />
         ))}
+        <SkinBurst skin={item.id} burstKey={demo || null} />
       </div>
+      <SkinMoment skin={item.id} momentKey={demo || null} label={item.name} />
       <div className="shop-item__body">
         <h2 className="shop-item__name">
           {item.name}
           <span className={`shop-item__kind shop-item__kind--${item.kind}`}>{KIND_LABEL[item.kind]}</span>
         </h2>
         <p className="shop-item__blurb">{item.blurb}</p>
+        {item.kind === "animated" && (
+          <button type="button" className="button button--ghost button--small shop-item__demo" onClick={() => setDemo((d) => d + 1)}>
+            Preview effects
+          </button>
+        )}
         <div className="shop-item__footer">
           <span className="shop-item__price">{item.price === 0 ? "Free" : `${item.price.toLocaleString()} credits`}</span>
           {action}

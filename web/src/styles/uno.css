@@ -220,6 +220,7 @@
 }
 
 .uno-opponent {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -391,13 +392,16 @@
 }
 
 .uno-self {
+  position: relative;
+  justify-self: center;
+  border-radius: var(--radius);
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.8rem;
   color: var(--color-muted);
-  padding: 0 0.5rem;
+  padding: 0.15rem 0.75rem;
 }
 
 .uno-hand {

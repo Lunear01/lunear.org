@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import type { SkinId } from "worker/src/shop/catalog";
 import { PokerCard } from "../components/PokerCard";
 import { useAuth } from "../context/AuthContext";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
+import { seatSkin } from "../skins/SkinArt";
 import type {
   Card,
   ClientMessage,
@@ -228,6 +233,8 @@ export default function BlackjackTable() {
         </div>
       )}
 
+      <BjMoment view={view} handNo={handNo} seats={seats} />
+
       <div className="bj-felt">
         <div className="pk-center bj-dealer">
           <DealerArea
@@ -378,6 +385,22 @@ export default function BlackjackTable() {
   );
 }
 
+interface Moment {
+  key: string;
+  skin: SkinId;
+}
+
+/** First natural blackjack of a round, once per round. A round already over at page load doesn't replay. */
+function BjMoment({ view, handNo, seats }: { view: RedactedView | null; handNo: number; seats: readonly SeatStatus[] }) {
+  let moment: Moment | null = null;
+  if (view?.phase === "finished") {
+    const seat = ALL_SEATS.find((s) => view.outcomes[s]?.includes("blackjack"));
+    if (seat !== undefined) moment = { key: `round:${handNo}:${seat}`, skin: seatSkin(seats, seat) };
+  }
+  const fresh = useFreshKey(moment?.key ?? null);
+  return <SkinMoment skin={moment?.skin ?? "classic"} momentKey={fresh} label="Blackjack!" />;
+}
+
 function BjSeat({
   seat,
   seats,
@@ -428,6 +451,7 @@ function BjSeat({
 
   return (
     <div className={classes}>
+      {row && !isOpen && <SeatAura skin={row.cardSkin} active={isCurrentTurn} />}
       {showResult && delta !== 0 && (
         <span key={settled?.handNo} className={`pk-delta-chip ${delta > 0 ? "pk-delta-chip--gain" : "pk-delta-chip--loss"}`}>
           {formatDelta(delta)}
@@ -468,8 +492,8 @@ function BjSeat({
           return (
             <div key={i} className={`bj-hand ${active ? "bj-hand--active" : ""}`}>
               <div className="pk-reveal__cards bj-seat__cards">
-                {hand.cards.map((c) => (
-                  <PokerCard key={c.id} card={c} />
+                {hand.cards.map((c, ci) => (
+                  <PokerCard key={c.id} card={c} skin={row?.cardSkin} index={ci} />
                 ))}
               </div>
               <div className="pk-seat__chips">

@@ -13,6 +13,10 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-24 — Skins style card fronts too: a seat's own hand, its played cards, poker hole cards,
+  Blackjack hands (shared cards stay classic). Animated skins get their own entrance and ambient
+  motion, a burst on each play, full-screen moments (bomb/rocket, Blackjack, UNO call, pot win,
+  hand win), seat auras and themed dealing. Plan: `action-plans/skin-faces-effects.md`.
 - 2026-10-24 — Shop: card-back skins bought with credits (`/shop`). Two static skins at 8,000
   (Midnight Deco, Crimson Lacquer) and two animated at 10,000 (Nebula, Molten Core: WebGL
   shaders + Motion). A balance below the price, including negative, is refused. A seat's skin

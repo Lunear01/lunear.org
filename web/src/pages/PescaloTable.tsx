@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
+import { seatSkin } from "../skins/SkinArt";
 import { rankLabel, sortForHand } from "../ws/cards";
 import type { Books, ErrorCode, ErrorMessage, GameEvent, RedactedView, Seat, SeatStatus } from "../ws/pescalo-types";
 import { usePescaloSocket } from "../ws/usePescaloSocket";
@@ -83,7 +88,7 @@ export default function PescaloTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError } = usePescaloSocket(tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError } = usePescaloSocket(tableId);
 
   const [selectedRank, setSelectedRank] = useState<number | null>(null);
   const [target, setTarget] = useState<Seat | null>(null);
@@ -221,10 +226,12 @@ export default function PescaloTable() {
               <BookChips books={view.books} seat={mySeat} label="Your books" />
             )}
             <div className="table-hand">
-              {sortForHand(view.hand).map((card) => (
+              {sortForHand(view.hand).map((card, i) => (
                 <PlayingCard
                   key={card.id}
                   card={card}
+                  skin={mySeatRow?.cardSkin}
+                  index={i}
                   selected={selectedRank === card.rank}
                   // Selectable off-turn so an ask can be lined up while waiting.
                   onClick={() => setSelectedRank((r) => (r === card.rank ? null : card.rank))}
@@ -258,6 +265,8 @@ export default function PescaloTable() {
           )}
         </div>
       </div>
+
+      {view && <PescaloMoment seats={seats} view={view} round={round} />}
 
       {settled && !aborted && settledVisible && (
         <div className="settled-overlay">
@@ -371,6 +380,7 @@ function PescaloOpponentSeat({
 
   const body = (
     <>
+      <SeatAura skin={row.cardSkin} active={isTurn} />
       <div className="table-opponent__cards">
         {count !== null && count > 0
           ? Array.from({ length: Math.min(count, MAX_BACKS) }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)
@@ -405,6 +415,28 @@ function PescaloOpponentSeat({
   return <div className={classes}>{body}</div>;
 }
 
+/** The sole winner's moment. Mounted from the first view so only wins seen live fire. */
+function PescaloMoment({
+  seats,
+  view,
+  round,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  round: number;
+}) {
+  const winner = view.phase === "finished" && view.winners.length === 1 ? view.winners[0] : null;
+  const held = winner !== null ? { key: `win-${round}`, seat: winner } : null;
+  const momentKey = useFreshKey(held?.key ?? null);
+  return (
+    <SkinMoment
+      skin={seatSkin(seats, held?.seat ?? -1)}
+      momentKey={momentKey}
+      label={held ? `${seatLabel(seats, held.seat)} wins` : ""}
+    />
+  );
+}
+
 function PescaloCenter({
   seats,
   view,
@@ -429,6 +461,23 @@ function PescaloCenter({
       </p>
     );
   }
+  return <PescaloView seats={seats} view={view} viewer={viewer} />;
+}
+
+// Split from PescaloCenter so the burst key's mount-time snapshot is the first view, not the empty table.
+function PescaloView({
+  seats,
+  view,
+  viewer,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  viewer: Seat | null;
+}) {
+  // Books are rank chips, not cards: a completed book is the table's play burst.
+  const book = view.lastEvents.find((e) => e.type === "book");
+  const burstKey = useFreshKey(book?.type === "book" ? `${book.seat}-${book.rank}` : null);
+  const burst = <SkinBurst skin={seatSkin(seats, book?.type === "book" ? book.seat : -1)} burstKey={burstKey} />;
 
   const feed = (
     <ul className="pc-feed" aria-live="polite">
@@ -442,7 +491,8 @@ function PescaloCenter({
 
   if (view.phase === "playing") {
     return (
-      <div className="pc-center">
+      <div className="pc-center fx-host">
+        {burst}
         <div className="pc-pool" aria-label={`${view.poolCount} cards in the pool`}>
           {view.poolCount > 0 ? <CardBack /> : <span className="pc-pool__empty" />}
           <span className="pc-pool__count">{view.poolCount} in the pool</span>
@@ -456,7 +506,8 @@ function PescaloCenter({
   }
 
   return (
-    <div className="pc-center">
+    <div className="pc-center fx-host">
+      {burst}
       {feed}
       <p className="table-center__turn">
         {view.winners.length > 1

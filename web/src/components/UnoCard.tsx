@@ -1,5 +1,5 @@
 import type { SkinId } from "worker/src/shop/catalog";
-import { SkinArt, skinHostClass } from "../skins/SkinArt";
+import { SkinArt, skinHostClass, useSkinFace } from "../skins/SkinArt";
 import type { Card, Color } from "../ws/uno-types";
 
 interface UnoCardProps {
@@ -10,6 +10,10 @@ interface UnoCardProps {
   small?: boolean;
   /** Omit to render a non-interactive (table/opponent) card. */
   onClick?: () => void;
+  /** Owning seat's skin; shared cards stay classic. */
+  skin?: SkinId;
+  /** Position in a row, for skin variant and stagger. */
+  index?: number;
 }
 
 const COLOR_NAME: Record<Color, string> = { red: "Red", yellow: "Yellow", green: "Green", blue: "Blue" };
@@ -52,7 +56,8 @@ export function cardLabel(card: Card): string {
  * CSS-drawn UNO face: colour field, white oval, big centre glyph, small
  * corner glyphs. Wilds show a four-colour quadrant inside the oval.
  */
-export function UnoCard({ card, playable = true, highlighted = false, small = false, onClick }: UnoCardProps) {
+export function UnoCard({ card, playable = true, highlighted = false, small = false, onClick, skin, index }: UnoCardProps) {
+  const { ref, faceClass, faceArt } = useSkinFace<HTMLButtonElement>(skin, index);
   const wild = card.color === null;
   const classes = [
     "uno-card",
@@ -60,6 +65,7 @@ export function UnoCard({ card, playable = true, highlighted = false, small = fa
     wild ? "uno-card--wild" : `uno-card--${card.color}`,
     onClick && !playable && "uno-card--dim",
     highlighted && "uno-card--highlighted",
+    faceClass,
   ]
     .filter(Boolean)
     .join(" ");
@@ -68,12 +74,14 @@ export function UnoCard({ card, playable = true, highlighted = false, small = fa
 
   return (
     <button
+      ref={ref}
       type="button"
       className={classes}
       onClick={onClick}
       disabled={!onClick || !playable}
       aria-label={cardLabel(card)}
     >
+      {faceArt}
       <span className="uno-card__corner uno-card__corner--top" aria-hidden="true">
         {glyph}
       </span>

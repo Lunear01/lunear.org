@@ -1,0 +1,160 @@
+/* ---------- Play burst ---------- */
+
+.fx-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.fx-burst > * {
+  position: absolute;
+}
+
+.fx-burst__flash {
+  width: 120px;
+  height: 120px;
+  margin: -60px 0 0 -60px;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+}
+
+.fx-burst__flash--nebula {
+  background: radial-gradient(circle, #fff 0 10%, rgba(200, 160, 255, 0.85) 25%, rgba(90, 200, 255, 0.35) 50%, transparent 70%);
+}
+
+.fx-burst__flash--molten {
+  background: radial-gradient(circle, #fff6d0 0 10%, rgba(255, 160, 40, 0.9) 28%, rgba(255, 60, 0, 0.35) 52%, transparent 70%);
+}
+
+.fx-burst__ring {
+  width: 80px;
+  height: 80px;
+  margin: -40px 0 0 -40px;
+  border-radius: 50%;
+  border: 2px solid rgba(190, 160, 255, 0.95);
+  box-shadow:
+    0 0 12px rgba(120, 200, 255, 0.9),
+    inset 0 0 10px rgba(255, 120, 220, 0.7);
+}
+
+.fx-burst__shard {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  background:
+    linear-gradient(90deg, transparent 44%, #fff 50%, transparent 56%),
+    linear-gradient(0deg, transparent 44%, #fff 50%, transparent 56%),
+    radial-gradient(circle, #fff 0 10%, rgba(170, 140, 255, 0.7) 22%, transparent 45%);
+  mix-blend-mode: screen;
+}
+
+.fx-burst__ember {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff3c4 0 25%, #ffae3d 50%, rgba(255, 80, 0, 0) 75%);
+  box-shadow: 0 0 6px rgba(255, 120, 20, 0.9);
+}
+
+.fx-burst__cracks {
+  width: 200px;
+  height: 200px;
+  margin: -100px 0 0 -100px;
+  overflow: visible;
+  fill: none;
+  stroke: #ffb347;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px #ff6a00);
+}
+
+/* ---------- Big moment ---------- */
+
+.fx-moment {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fx-moment__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.fx-moment__label {
+  position: relative;
+  padding: 0 16px;
+  text-align: center;
+  font-size: clamp(2rem, 9vw, 5rem);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+/* Solid colour + glow: gradient-clipped text renders blank on an animating layer in Chrome. */
+.fx-moment--nebula .fx-moment__label {
+  color: #f1e8ff;
+  text-shadow:
+    0 0 6px #c9a6ff,
+    0 0 18px #8a5cff,
+    -3px 0 22px rgba(95, 224, 255, 0.9),
+    3px 0 22px rgba(255, 122, 217, 0.9);
+}
+
+.fx-moment--molten-core .fx-moment__label {
+  color: #fff3d0;
+  text-shadow:
+    0 0 6px #ffb347,
+    0 0 18px #ff6a00,
+    0 4px 28px rgba(255, 40, 0, 0.95);
+}
+
+/* ---------- Seat aura ---------- */
+
+.seat-aura {
+  position: absolute;
+  inset: -2px;
+  padding: 2px;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.7;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.seat-aura--active {
+  padding: 3px;
+  opacity: 1;
+}
+
+.seat-aura__spin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 300%;
+  aspect-ratio: 1;
+  margin: -150% 0 0 -150%;
+}
+
+.seat-aura--nebula .seat-aura__spin {
+  background: conic-gradient(transparent 0 50%, #6b4cff 66%, #5fe0ff 82%, #ff7ad9 94%, transparent);
+}
+
+.seat-aura--molten-core .seat-aura__spin {
+  background: conic-gradient(transparent 0 48%, #7a1606 62%, #ff6a00 80%, #ffd27a 93%, transparent);
+}

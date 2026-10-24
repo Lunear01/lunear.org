@@ -867,6 +867,19 @@ a {
   font-size: 0.75rem;
   color: var(--color-muted);
   max-width: 45vw;
+  /* Host for SeatAura. */
+  position: relative;
+  border-radius: var(--radius);
+}
+
+/* Seats without their own padding get the aura ring outside the content. */
+.table-opponent:not(.cd-opponent, .pc-opponent) > .seat-aura {
+  inset: -5px;
+}
+
+/* Host for SkinBurst. */
+.fx-host {
+  position: relative;
 }
 
 .table-opponent__cards {

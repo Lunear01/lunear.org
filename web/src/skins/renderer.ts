@@ -22,9 +22,17 @@ interface ProgramInfo {
   program: WebGLProgram;
   uTime: WebGLUniformLocation | null;
   uSeed: WebGLUniformLocation | null;
+  uFace: WebGLUniformLocation | null;
 }
 
-const targets = new Map<AnimatedSkinId, Set<Target>>();
+interface Group {
+  skin: AnimatedSkinId;
+  face: boolean;
+  set: Set<Target>;
+}
+
+/** Keyed `${skin}|${face}`: backs and fronts render as separate atlases. */
+const targets = new Map<string, Group>();
 let canvas: HTMLCanvasElement | null = null;
 let gl: WebGLRenderingContext | null = null;
 let programs: Partial<Record<AnimatedSkinId, ProgramInfo>> = {};
@@ -56,6 +64,7 @@ function buildProgram(ctx: WebGLRenderingContext, fragment: string): ProgramInfo
     program,
     uTime: ctx.getUniformLocation(program, "u_time"),
     uSeed: ctx.getUniformLocation(program, "u_seed"),
+    uFace: ctx.getUniformLocation(program, "u_face"),
   };
 }
 
@@ -107,12 +116,13 @@ function programFor(skin: AnimatedSkinId): ProgramInfo | null {
 
 function render(time: number) {
   if (!ensureGl() || !gl || !canvas) return;
-  for (const [skin, set] of targets) {
+  for (const { skin, face, set } of targets.values()) {
     if (set.size === 0) continue;
     const info = programFor(skin);
     if (!info) return;
     gl.useProgram(info.program);
     gl.uniform1f(info.uTime, time);
+    gl.uniform1f(info.uFace, face ? 1 : 0);
     const used = new Set([...set].map((t) => t.variant));
     for (const v of used) {
       // Row 0 is the top of the 2D image; GL's viewport origin is bottom-left.
@@ -147,15 +157,22 @@ reducedMotion.addEventListener("change", schedule);
  * Feeds `target` the skin's animation until the returned cleanup runs.
  * False return = WebGL unavailable; caller keeps its CSS fallback.
  */
-export function subscribe(target: HTMLCanvasElement, skin: AnimatedSkinId, seed: number): (() => void) | false {
+export function subscribe(
+  target: HTMLCanvasElement,
+  skin: AnimatedSkinId,
+  seed: number,
+  face = false,
+): (() => void) | false {
   if (!ensureGl()) return false;
   const ctx = target.getContext("2d");
   if (!ctx) return false;
   target.width = CELL_W;
   target.height = CELL_H;
   const entry: Target = { ctx, variant: ((seed % VARIANTS) + VARIANTS) % VARIANTS };
-  let set = targets.get(skin);
-  if (!set) targets.set(skin, (set = new Set()));
+  const key = `${skin}|${face}`;
+  let group = targets.get(key);
+  if (!group) targets.set(key, (group = { skin, face, set: new Set() }));
+  const { set } = group;
   set.add(entry);
   // Reduced motion draws one still frame per new card; otherwise the loop picks it up.
   if (reducedMotion.matches) {
@@ -165,7 +182,7 @@ export function subscribe(target: HTMLCanvasElement, skin: AnimatedSkinId, seed:
   schedule();
   return () => {
     set.delete(entry);
-    if (set.size === 0) targets.delete(skin);
+    if (set.size === 0) targets.delete(key);
   };
 }
 

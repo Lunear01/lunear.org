@@ -1,3 +1,5 @@
+import type { SkinId } from "worker/src/shop/catalog";
+import { useSkinFace } from "../skins/SkinArt";
 import type { Card } from "../ws/poker-types";
 
 // Poker's Card shape (rank 2-14, suit "c"|"d"|"h"|"s" — games/poker/src/cards.ts)
@@ -34,15 +36,21 @@ interface PokerCardProps {
   card: Card;
   /** Renders large, for the viewer's own hole cards (see .pk-holecard in global.css). */
   big?: boolean;
+  /** Owning seat's skin; shared cards stay classic. */
+  skin?: SkinId;
+  /** Position in a row, for skin variant and stagger. */
+  index?: number;
 }
 
-export function PokerCard({ card, big = false }: PokerCardProps) {
-  const classes = ["playing-card", isRed(card) ? "playing-card--red" : "playing-card--black", big && "pk-holecard"]
+export function PokerCard({ card, big = false, skin, index }: PokerCardProps) {
+  const { ref, faceClass, faceArt } = useSkinFace<HTMLDivElement>(skin, index);
+  const classes = ["playing-card", isRed(card) ? "playing-card--red" : "playing-card--black", big && "pk-holecard", faceClass]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <div className={classes} aria-label={`${RANK_LABELS[card.rank]} of ${SUIT_GLYPHS[card.suit]}`}>
+    <div ref={ref} className={classes} aria-label={`${RANK_LABELS[card.rank]} of ${SUIT_GLYPHS[card.suit]}`}>
+      {faceArt}
       <span className="playing-card__index" aria-hidden="true">
         <span className="playing-card__rank">{RANK_LABELS[card.rank]}</span>
         <span className="playing-card__suit">{SUIT_GLYPHS[card.suit]}</span>

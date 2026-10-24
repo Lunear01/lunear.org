@@ -6,9 +6,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import { suggestPlay } from "doudizhu";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
+import { seatSkin } from "../skins/SkinArt";
 import { sortForHand } from "../ws/cards";
 import type { ClientMessage, Combo, ErrorCode, ErrorMessage, Seat, SeatStatus } from "../ws/types";
 import { useGameSocket } from "../ws/useGameSocket";
+
+type TableView = NonNullable<ReturnType<typeof useGameSocket>["view"]>;
 
 // This table page is doudizhu-specific (see the `suggestPlay` import above),
 // so the lobby it returns to on exit is hardcoded rather than derived.
@@ -74,7 +81,7 @@ export default function Table() {
   const { gameId = "doudizhu", tableId = "" } = useParams<{ gameId: string; tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(gameId, tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(gameId, tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -233,10 +240,12 @@ export default function Table() {
 
         {view && "hand" in view && (
           <div className="table-hand">
-            {sortForHand(view.hand).map((card) => (
+            {sortForHand(view.hand).map((card, i) => (
               <PlayingCard
                 key={card.id}
                 card={card}
+                skin={mySeatRow?.cardSkin}
+                index={i}
                 selected={selected.has(card.id)}
                 // Selectable all through play, not just on our turn, so a
                 // play can be lined up while waiting. Play itself stays turn-gated.
@@ -309,6 +318,8 @@ export default function Table() {
         </div>
       </div>
 
+      {view && <TableMoments seats={seats} view={view} round={round} />}
+
       {settled && !aborted && settledVisible && (
         <div className="settled-overlay">
           <div className="settled-card card">
@@ -376,9 +387,13 @@ function OpponentSeat({
   const count = view && "handCounts" in view ? view.handCounts[seat] : null;
   const isLandlord = view !== null && "landlord" in view && view.landlord === seat;
   const isHighBidder = view?.phase === "bidding" && view.highestBidder === seat;
+  const isTurn =
+    (view?.phase === "playing" && view.currentTurn === seat) ||
+    (view?.phase === "bidding" && view.currentBidder === seat);
 
   return (
     <div className="table-opponent">
+      {row && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="table-opponent__cards">
         {count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)}
       </div>
@@ -402,6 +417,66 @@ function OpponentSeat({
   );
 }
 
+/** Bomb or rocket lead moment, then the win; the win wins a tie. Fires only for events seen live. */
+function TableMoments({
+  seats,
+  view,
+  round,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: TableView;
+  round: number;
+}) {
+  const finalPlay = finalPlayOf(view);
+  const last = view.phase === "playing" ? view.lastPlay : null;
+  const explosive = last && (last.combo.category === "bomb" || last.combo.category === "rocket") ? last : null;
+  const event = finalPlay
+    ? { key: `win-${round}`, seat: finalPlay.seat, label: `${seatLabel(seats, finalPlay.seat)} wins` }
+    : explosive
+      ? {
+          key: `${explosive.seat}-${playIds(explosive.combo)}`,
+          seat: explosive.seat,
+          label: explosive.combo.category === "rocket" ? "Rocket!" : "Bomb!",
+        }
+      : null;
+  const held = event;
+  const momentKey = useFreshKey(held?.key ?? null);
+  return <SkinMoment skin={seatSkin(seats, held?.seat ?? -1)} momentKey={momentKey} label={held?.label ?? ""} />;
+}
+
+function playIds(combo: Combo): string {
+  return combo.cards.map((c) => c.id).join(",");
+}
+
+/** The winning play of a finished hand. */
+function finalPlayOf(view: TableView): { seat: Seat; combo: Combo } | null {
+  if (view.phase !== "finished") return null;
+  const play = [...view.history].reverse().find((h) => h.combo !== null);
+  return play?.combo ? { seat: play.seat, combo: play.combo } : null;
+}
+
+function PlayRow({
+  seats,
+  play,
+  burstKey,
+}: {
+  seats: readonly SeatStatus[] | null;
+  play: { seat: Seat; combo: Combo };
+  burstKey: string | null;
+}) {
+  const skin = seatSkin(seats, play.seat);
+  return (
+    <div className="fx-host">
+      <div className="table-cardrow table-cardrow--lastplay">
+        {sortForHand(play.combo.cards).map((c, i) => (
+          <PlayingCard key={c.id} card={c} skin={skin} index={i} />
+        ))}
+      </div>
+      <SkinBurst skin={skin} burstKey={burstKey} />
+    </div>
+  );
+}
+
 function CenterArea({
   seats,
   view,
@@ -416,6 +491,13 @@ function CenterArea({
     }
     return <p className="table-center__hint">All seats filled — ready up to start the hand.</p>;
   }
+  return <CenterView seats={seats} view={view} />;
+}
+
+// Split from CenterArea so the burst key's mount-time snapshot is the first view, not the empty table.
+function CenterView({ seats, view }: { seats: readonly SeatStatus[] | null; view: TableView }) {
+  const play = view.phase === "playing" ? view.lastPlay : finalPlayOf(view);
+  const burstKey = useFreshKey(play ? `${play.seat}-${playIds(play.combo)}` : null);
 
   switch (view.phase) {
     case "bidding":
@@ -444,11 +526,7 @@ function CenterArea({
           <div>
             {view.lastPlay ? (
               <>
-                <div className="table-cardrow table-cardrow--lastplay">
-                  {sortForHand(view.lastPlay.combo.cards).map((c) => (
-                    <PlayingCard key={c.id} card={c} />
-                  ))}
-                </div>
+                <PlayRow seats={seats} play={view.lastPlay} burstKey={burstKey} />
                 <p className="table-center__hint">
                   {seatLabel(seats, view.lastPlay.seat)} · {COMBO_NAMES[view.lastPlay.combo.category]}
                 </p>
@@ -463,16 +541,12 @@ function CenterArea({
         </div>
       );
     case "finished": {
-      const finalPlay = [...view.history].reverse().find((h) => h.combo !== null);
+      const finalPlay = finalPlayOf(view);
       return (
         <div>
-          {finalPlay?.combo && (
+          {finalPlay && (
             <>
-              <div className="table-cardrow table-cardrow--lastplay">
-                {sortForHand(finalPlay.combo.cards).map((c) => (
-                  <PlayingCard key={c.id} card={c} />
-                ))}
-              </div>
+              <PlayRow seats={seats} play={finalPlay} burstKey={burstKey} />
               <p className="table-center__turn">{seatLabel(seats, finalPlay.seat)} goes out</p>
             </>
           )}

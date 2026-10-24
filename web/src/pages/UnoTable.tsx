@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { UnoCard, UnoCardBack, cardLabel } from "../components/UnoCard";
 import { useAuth } from "../context/AuthContext";
+import { SeatAura } from "../skins/effects/SeatAura";
+import { SkinBurst } from "../skins/effects/SkinBurst";
+import { SkinMoment } from "../skins/effects/SkinMoment";
+import { useFreshKey } from "../skins/effects/useFreshKey";
+import { seatSkin } from "../skins/SkinArt";
+import type { SkinId } from "worker/src/shop/catalog";
 import type {
   Card,
   Color,
@@ -228,6 +234,7 @@ export default function UnoTable() {
   }, [mySeat, seats]);
 
   const sortedHand = useMemo(() => (view && "hand" in view ? sortForHand(view.hand) : []), [view]);
+  const mySkin = mySeat !== null ? seatSkin(seats, mySeat) : "classic";
 
   return (
     <div className="table-page">
@@ -249,6 +256,8 @@ export default function UnoTable() {
           {friendlyError(error)}
         </div>
       )}
+
+      {view && <UnoMoments seats={seats} view={view} mySeat={mySeat} />}
 
       <div className="table-felt">
         <div className="uno-opponents">
@@ -273,6 +282,7 @@ export default function UnoTable() {
             )}
             {playingView && myInGame && (
               <div className="uno-self">
+                <SeatAura skin={mySkin} active={myTurn} />
                 {myTurn ? (
                   <span className="table-center__turn">
                     {playingView.pendingDraw ? "Play the card you drew, or pass" : "Your turn — tap a card or draw"}
@@ -286,7 +296,7 @@ export default function UnoTable() {
               </div>
             )}
             <div className="uno-hand">
-              {sortedHand.map((card) => {
+              {sortedHand.map((card, i) => {
                 const playable =
                   playingView !== null &&
                   (playingView.pendingDraw === null
@@ -296,6 +306,8 @@ export default function UnoTable() {
                   <UnoCard
                     key={card.id}
                     card={card}
+                    skin={mySkin}
+                    index={i}
                     playable={!myTurn || playable}
                     highlighted={playingView !== null && card.id === playingView.pendingDraw}
                     onClick={myTurn ? () => handleCardTap(card) : undefined}
@@ -466,6 +478,7 @@ function UnoOpponentSeat({
 
   return (
     <div className={`uno-opponent ${isTurn ? "uno-opponent--turn" : ""}`}>
+      {row && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="uno-opponent__cards">
         {count !== null && Array.from({ length: Math.min(count, 12) }).map((_, i) => <UnoCardBack key={i} small skin={row?.cardSkin} index={i} />)}
       </div>
@@ -545,9 +558,7 @@ function UnoCenter({
           <span>{view.phase === "playing" ? `Draw · ${view.drawPileCount}` : "Draw"}</span>
         </div>
         <div className="uno-pile uno-pile--discard">
-          <div className="uno-pile__stack">
-            <UnoCard card={top} />
-          </div>
+          <UnoDiscard top={top} view={view} skin={seatSkin(seats, view.lastPlayedBy ?? -1)} />
           <span>{view.lastPlayedBy === null ? "Discard" : seatLabel(seats, view.lastPlayedBy, mySeat)}</span>
         </div>
       </div>
@@ -576,4 +587,53 @@ function UnoCenter({
       )}
     </div>
   );
+}
+
+/** Discard top stays classic; the burst wears the playing seat's skin. */
+function UnoDiscard({ top, view, skin }: { top: Card; view: RedactedView; skin: SkinId }) {
+  const burstKey = useFreshKey(view.lastPlayedBy === null ? null : top.id);
+  return (
+    <div className="uno-pile__stack">
+      <UnoCard card={top} />
+      <SkinBurst skin={skin} burstKey={burstKey} />
+    </div>
+  );
+}
+
+interface Moment {
+  key: string;
+  skin: SkinId;
+  label: string;
+}
+
+/** UNO calls and hand wins, once each. Mount with the view so a page load doesn't replay them. */
+function UnoMoments({
+  seats,
+  view,
+  mySeat,
+}: {
+  seats: readonly SeatStatus[] | null;
+  view: RedactedView;
+  mySeat: Seat | null;
+}) {
+  let moment: Moment | null = null;
+  if (view.phase === "finished") {
+    const { winner, discardPile } = view;
+    moment = {
+      key: `win:${winner}:${discardPile.length}:${discardPile[discardPile.length - 1].id}`,
+      skin: seatSkin(seats, winner),
+      label: winner === mySeat ? "You win!" : `${seatLabel(seats, winner, mySeat)} wins`,
+    };
+  } else {
+    const call = view.lastEvents.find((e): e is Extract<GameEvent, { type: "called-uno" }> => e.type === "called-uno");
+    if (call) {
+      moment = {
+        key: `uno:${call.seat}:${view.topCard.id}:${view.drawPileCount}`,
+        skin: seatSkin(seats, call.seat),
+        label: "UNO!",
+      };
+    }
+  }
+  const fresh = useFreshKey(moment?.key ?? null);
+  return <SkinMoment skin={moment?.skin ?? "classic"} momentKey={fresh} label={moment?.label ?? ""} />;
 }
