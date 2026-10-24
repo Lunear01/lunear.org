@@ -3,6 +3,7 @@
 // the DO itself so both sides share one definition. Same shape as
 // chudaidi-protocol.ts; the one game action is ask.
 import type { RedactedView, RejectionReason, Seat } from "pescalo";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -44,6 +45,8 @@ export interface SeatStatus {
   readonly ready: boolean;
   /** Cached D1 balance, refreshed on connect and after settlement only. 0 for an empty seat. */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {

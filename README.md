@@ -27,6 +27,8 @@ and reused on its own.
   for matchmaking. A D1 database holds persistent data (accounts, history).
 - `web/` — React + Vite frontend, served as static assets by the same Worker.
 - `games/*` — game logic packages, imported by both `worker` and `web`.
+- `worker/src/shop` — shop catalog (card-back skins, prices), shared with `web`. Skin rendering
+  lives in `web/src/skins`: one shared WebGL canvas feeds every animated card back.
 
 ### Setup
 

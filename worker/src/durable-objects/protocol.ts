@@ -2,6 +2,7 @@
 // single WebSocket. Imported by the client (S8b) for typed messages, and by
 // the DO itself so both sides share one definition.
 import type { RedactedView, RejectionReason, Seat } from "doudizhu";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -64,6 +65,8 @@ export interface SeatStatus {
    * show up here until the next reconnect or settlement. 0 for an empty seat.
    */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {

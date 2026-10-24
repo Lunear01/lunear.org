@@ -1,0 +1,113 @@
+.shop__intro {
+  color: var(--color-muted);
+  margin: 0 0 1rem;
+}
+
+.shop__intro strong {
+  color: var(--color-gold-light);
+}
+
+.shop__credits--negative {
+  color: var(--color-danger) !important;
+}
+
+.shop__notice {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.8rem;
+  background: rgba(217, 164, 65, 0.1);
+}
+
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 1rem;
+}
+
+.shop-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.shop-item--equipped {
+  border-color: var(--color-gold);
+}
+
+.shop-item__preview {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  background: radial-gradient(ellipse at 50% 60%, var(--color-felt-light), var(--color-felt-dark));
+}
+
+.shop-item__card {
+  width: 92px;
+  height: 129px;
+  margin-left: -46px;
+  transition: transform 0.2s ease;
+}
+
+.shop-item__card:first-child {
+  margin-left: 0;
+  transform: rotate(-10deg) translateY(8px);
+}
+
+.shop-item__card:last-child {
+  transform: rotate(10deg) translateY(8px);
+}
+
+.shop-item__body {
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.shop-item__name {
+  font-size: 1.05rem;
+  margin: 0 0 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.shop-item__kind {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.shop-item__kind--animated {
+  color: var(--color-gold-light);
+  border-color: var(--color-gold);
+}
+
+.shop-item__blurb {
+  margin: 0 0 0.75rem;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.shop-item__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.shop-item__price {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-gold-light);
+}
+
+.shop-item__equipped {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-gold);
+}

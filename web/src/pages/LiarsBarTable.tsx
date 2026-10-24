@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CardBack } from "../components/PlayingCard";
+import { SkinArt, seatSkin, skinHostClass } from "../skins/SkinArt";
 import { LiarsBarCard } from "../components/LiarsBarCard";
 import { useAuth } from "../context/AuthContext";
 import type {
@@ -355,7 +356,7 @@ function LiarsBarOpponentSeat({
             💀
           </span>
         ) : (
-          count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small />)
+          count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)
         )}
       </div>
       <div className="table-opponent__info">
@@ -399,7 +400,7 @@ function LiarsBarCenter({ seats, view }: { seats: readonly SeatStatus[] | null; 
             <div className="lb-lastplay">
               <div className="table-cardrow">
                 {Array.from({ length: view.lastPlay.cardCount }).map((_, i) => (
-                  <CardBack key={i} />
+                  <CardBack key={i} skin={seatSkin(seats, view.lastPlay!.seat)} index={i} />
                 ))}
               </div>
               <p className="table-center__hint">
@@ -468,7 +469,12 @@ function LiarsBarRevealOverlay({
               style={{ transitionDelay: `${i * 90}ms` }}
             >
               <div className="lb-flip__inner">
-                <div className="lb-flip__face lb-flip__face--back" aria-hidden="true" />
+                <div
+                  className={`lb-flip__face lb-flip__face--back ${skinHostClass(seatSkin(seats, lastReveal.playSeat))}`}
+                  aria-hidden="true"
+                >
+                  <SkinArt skin={seatSkin(seats, lastReveal.playSeat)} index={i} />
+                </div>
                 <div className="lb-flip__face lb-flip__face--front">
                   <LiarsBarCard card={card} />
                 </div>

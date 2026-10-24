@@ -360,7 +360,7 @@ function ChuDaiDOpponentSeat({
     <div className={`table-opponent cd-opponent ${isTurn ? "cd-opponent--turn" : ""}`}>
       <div className="table-opponent__cards">
         {count !== null && count > 0 && view?.phase === "playing"
-          ? Array.from({ length: count }).map((_, i) => <CardBack key={i} small />)
+          ? Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)
           : null}
         {view?.phase === "finished" && inGame && count !== null && count > 0 && (
           <div className="cd-revealed">

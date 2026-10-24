@@ -1,3 +1,5 @@
+import type { SkinId } from "worker/src/shop/catalog";
+import { SkinArt, skinHostClass } from "../skins/SkinArt";
 import type { Card, Color } from "../ws/uno-types";
 
 interface UnoCardProps {
@@ -93,13 +95,17 @@ export function UnoCard({ card, playable = true, highlighted = false, small = fa
   );
 }
 
-/** A face-down UNO card back: black field with a red oval and the word. */
-export function UnoCardBack({ small = false }: { small?: boolean }) {
+/** A face-down UNO card back: black field with a red oval and the word, or the owning seat's skin. */
+export function UnoCardBack({ small = false, skin = "classic", index = 0 }: { small?: boolean; skin?: SkinId; index?: number }) {
   return (
-    <div className={`uno-card uno-card--back ${small ? "uno-card--small" : ""}`} aria-hidden="true">
-      <span className="uno-card__oval uno-card__oval--back">
-        <span className="uno-card__center uno-card__center--back">UNO</span>
-      </span>
+    <div className={`uno-card uno-card--back ${small ? "uno-card--small" : ""} ${skinHostClass(skin)}`} aria-hidden="true">
+      {skin === "classic" ? (
+        <span className="uno-card__oval uno-card__oval--back">
+          <span className="uno-card__center uno-card__center--back">UNO</span>
+        </span>
+      ) : (
+        <SkinArt skin={skin} index={index} />
+      )}
     </div>
   );
 }

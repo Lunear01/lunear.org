@@ -3,6 +3,7 @@ import type { AuthVariables } from "./auth/session";
 import { adminRoutes } from "./routes/admin";
 import { authRoutes } from "./routes/auth";
 import { lobbyRoutes } from "./routes/lobby";
+import { shopRoutes } from "./routes/shop";
 import { tableRoutes } from "./routes/tables";
 
 export { GameTableDO } from "./durable-objects/game-table";
@@ -22,5 +23,6 @@ app.route("/api/auth", authRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/tables", tableRoutes);
 app.route("/api/lobby", lobbyRoutes);
+app.route("/api/shop", shopRoutes);
 
 export default app;

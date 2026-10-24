@@ -12,6 +12,7 @@ import Lobby from "./pages/Lobby";
 import Login from "./pages/Login";
 import PokerTable from "./pages/PokerTable";
 import Register from "./pages/Register";
+import Shop from "./pages/Shop";
 import Table from "./pages/Table";
 import UnoTable from "./pages/UnoTable";
 
@@ -69,6 +70,14 @@ export default function App() {
           element={
             <RequireAuth>
               <TableRoute />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/shop"
+          element={
+            <RequireAuth>
+              <Shop />
             </RequireAuth>
           }
         />

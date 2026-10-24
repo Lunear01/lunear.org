@@ -6,6 +6,7 @@
 // is no bidding/passing here, only "play some cards" or "call the last play a
 // lie" (challenge).
 import type { RedactedView, RejectionReason, Seat } from "liarsbar";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -62,6 +63,8 @@ export interface SeatStatus {
    * show up here until the next reconnect or settlement. 0 for an empty seat.
    */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {

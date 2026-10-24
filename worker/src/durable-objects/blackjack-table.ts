@@ -24,6 +24,7 @@ import {
   type StateMessage,
 } from "./blackjack-protocol";
 import { lobbyDoName } from "./lobby";
+import { toSkinId } from "../shop/catalog";
 import type { InitResult, TableInitParams } from "./game-table";
 
 export type { InitResult, TableInitParams };
@@ -108,6 +109,8 @@ interface SeatRow {
   credits: number;
   /** Next round's bet; set to the stake on seating, changed by a 'bet' message between rounds. */
   bet: number;
+  /** Cached D1 users.card_skin; NULL = classic. */
+  cardSkin: string | null;
 }
 
 interface GameStateRow {
@@ -185,7 +188,8 @@ export class BlackjackTableDO extends DurableObject<Env> {
         ready INTEGER NOT NULL DEFAULT 0,
         leave_pending INTEGER NOT NULL DEFAULT 0,
         credits INTEGER NOT NULL DEFAULT 0,
-        bet INTEGER NOT NULL DEFAULT 0
+        bet INTEGER NOT NULL DEFAULT 0,
+        card_skin TEXT
       )
     `);
     // Tables created before per-seat bets lack the column; CREATE IF NOT EXISTS won't add it.
@@ -195,6 +199,9 @@ export class BlackjackTableDO extends DurableObject<Env> {
       .map((c) => c.name);
     if (!seatColumns.includes("bet")) {
       this.ctx.storage.sql.exec("ALTER TABLE seats ADD COLUMN bet INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!seatColumns.includes("card_skin")) {
+      this.ctx.storage.sql.exec("ALTER TABLE seats ADD COLUMN card_skin TEXT");
     }
     // The terminal (finished) state stays in place after settlement so a
     // between-rounds broadcast keeps showing the last round's outcome and
@@ -865,6 +872,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
         bet: row ? Math.max(row.bet, meta.stake) : 0,
         leavePending: row?.leavePending === 1,
         credits: row?.credits ?? 0,
+        cardSkin: toSkinId(row?.cardSkin),
       };
     });
 
@@ -965,7 +973,7 @@ export class BlackjackTableDO extends DurableObject<Env> {
   private loadSeats(): SeatRow[] {
     return this.ctx.storage.sql
       .exec<SeatRow>(
-        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits, bet FROM seats ORDER BY seat",
+        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits, bet, card_skin as cardSkin FROM seats ORDER BY seat",
       )
       .toArray();
   }
@@ -976,12 +984,17 @@ export class BlackjackTableDO extends DurableObject<Env> {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => "?").join(", ");
     const { results } = await this.env.DB.prepare(
-      `SELECT id, credits FROM users WHERE id IN (${placeholders})`,
+      `SELECT id, credits, card_skin as cardSkin FROM users WHERE id IN (${placeholders})`,
     )
       .bind(...ids)
-      .all<{ id: string; credits: number }>();
+      .all<{ id: string; credits: number; cardSkin: string | null }>();
     for (const row of results) {
-      this.ctx.storage.sql.exec("UPDATE seats SET credits = ? WHERE user_id = ?", row.credits, row.id);
+      this.ctx.storage.sql.exec(
+        "UPDATE seats SET credits = ?, card_skin = ? WHERE user_id = ?",
+        row.credits,
+        row.cardSkin,
+        row.id,
+      );
     }
   }
 

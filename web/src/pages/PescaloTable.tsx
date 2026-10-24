@@ -373,7 +373,7 @@ function PescaloOpponentSeat({
     <>
       <div className="table-opponent__cards">
         {count !== null && count > 0
-          ? Array.from({ length: Math.min(count, MAX_BACKS) }).map((_, i) => <CardBack key={i} small />)
+          ? Array.from({ length: Math.min(count, MAX_BACKS) }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)
           : null}
       </div>
       <div className="table-opponent__info">

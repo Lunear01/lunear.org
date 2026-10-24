@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { STARTING_STACK_MULTIPLE } from "poker";
+import type { SkinId } from "worker/src/shop/catalog";
+import { FlipBack } from "../components/PlayingCard";
 import { PokerCard, PokerCardSlot } from "../components/PokerCard";
 import { useAuth } from "../context/AuthContext";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
+import { seatSkin } from "../skins/SkinArt";
 import type {
   Card,
   ClientMessage,
@@ -341,6 +344,7 @@ export default function PokerTable() {
             filledSeats={filledSeats}
             mySeat={mySeat}
             seatLabel={seatLabel}
+            seats={seats}
             skippedThisHand={skippedThisHand}
             settling={settled !== null && countdownActive}
             reducedMotion={reducedMotion}
@@ -508,6 +512,7 @@ function CenterArea({
   filledSeats,
   mySeat,
   seatLabel,
+  seats,
   skippedThisHand,
   settling,
   reducedMotion,
@@ -516,6 +521,7 @@ function CenterArea({
   filledSeats: number;
   mySeat: Seat | null;
   seatLabel: (seat: Seat) => string;
+  seats: readonly SeatStatus[] | null;
   /** True when this seat is dealt out of the CURRENT hand (see PokerTable's
    * own `skippedThisHand` doc comment) — `view` is null either way, so this
    * distinguishes "sitting out a hand in progress" from "no hand yet". */
@@ -560,6 +566,7 @@ function CenterArea({
           amountWon={view.amountWon}
           pot={view.pot}
           seatLabel={seatLabel}
+          seats={seats}
           reducedMotion={reducedMotion}
         />
       )}
@@ -641,6 +648,7 @@ function ShowdownReveals({
   amountWon,
   pot,
   seatLabel,
+  seats,
   reducedMotion,
 }: {
   view: readonly ShowdownReveal[];
@@ -648,6 +656,7 @@ function ShowdownReveals({
   amountWon: Readonly<Record<Seat, number>>;
   pot: number;
   seatLabel: (seat: Seat) => string;
+  seats: readonly SeatStatus[] | null;
   reducedMotion: boolean;
 }) {
   const winnerNames = winners.map(seatLabel);
@@ -668,6 +677,7 @@ function ShowdownReveals({
             isWinner={winners.includes(r.seat)}
             amountWon={amountWon[r.seat] ?? 0}
             seatLabel={seatLabel}
+            skin={seatSkin(seats, r.seat)}
             reducedMotion={reducedMotion}
           />
         ))}
@@ -691,6 +701,7 @@ function ShowdownRow({
   isWinner,
   amountWon,
   seatLabel,
+  skin,
   reducedMotion,
 }: {
   reveal: ShowdownReveal;
@@ -698,6 +709,7 @@ function ShowdownRow({
   isWinner: boolean;
   amountWon: number;
   seatLabel: (seat: Seat) => string;
+  skin: SkinId;
   reducedMotion: boolean;
 }) {
   // Initialized straight to their end state under reduced motion (rather
@@ -731,7 +743,7 @@ function ShowdownRow({
       <div className="pk-reveal__cards">
         <div className={`flip ${revealed ? "flip--revealed" : ""}`}>
           <div className="flip__inner">
-            <div className="flip__face flip__face--back" aria-hidden="true" />
+            <FlipBack skin={skin} index={0} />
             <div className="flip__face flip__face--front">
               <PokerCard card={reveal.holeCards[0]} />
             </div>
@@ -739,7 +751,7 @@ function ShowdownRow({
         </div>
         <div className={`flip ${revealed ? "flip--revealed" : ""}`}>
           <div className="flip__inner">
-            <div className="flip__face flip__face--back" aria-hidden="true" />
+            <FlipBack skin={skin} index={1} />
             <div className="flip__face flip__face--front">
               <PokerCard card={reveal.holeCards[1]} />
             </div>

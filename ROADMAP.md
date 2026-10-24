@@ -13,6 +13,11 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-24 — Shop: card-back skins bought with credits (`/shop`). Two static skins at 8,000
+  (Midnight Deco, Crimson Lacquer) and two animated at 10,000 (Nebula, Molten Core: WebGL
+  shaders + Motion). A balance below the price, including negative, is refused. A seat's skin
+  shows on its face-down cards for every player. Guests can't buy. Plan:
+  `action-plans/card-skins.md`.
 - 2026-10-24 — CD: Workers Builds runs every test suite before deploying (`npm run cf-build`);
   CI cancels superseded runs. Setup in `docs/deploy.md`.
 - 2026-10-24 — Fight the Landlord: the rocket (both jokers) no longer beats a pair. Blackjack: a

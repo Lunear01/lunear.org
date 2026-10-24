@@ -1,4 +1,6 @@
 import type { Card } from "../ws/types";
+import type { SkinId } from "worker/src/shop/catalog";
+import { SkinArt, skinHostClass } from "../skins/SkinArt";
 import { isJoker, isRed, rankLabel, suitGlyph } from "../ws/cards";
 
 interface PlayingCardProps {
@@ -55,7 +57,28 @@ export function PlayingCard({ card, selected = false, small = false, onClick }: 
   );
 }
 
+interface CardBackProps {
+  small?: boolean;
+  /** Owning seat's skin; shared piles stay classic. */
+  skin?: SkinId;
+  /** Position in a fan, for skin variant and stagger. */
+  index?: number;
+}
+
 /** A face-down card back, used for opponents' hands and the pre-bid bottom stack. */
-export function CardBack({ small = false }: { small?: boolean }) {
-  return <div className={`card-back ${small ? "card-back--small" : ""}`} aria-hidden="true" />;
+export function CardBack({ small = false, skin = "classic", index = 0 }: CardBackProps) {
+  return (
+    <div className={`card-back ${small ? "card-back--small" : ""} ${skinHostClass(skin)}`} aria-hidden="true">
+      <SkinArt skin={skin} index={index} />
+    </div>
+  );
+}
+
+/** Face-down side of a `.flip` card. */
+export function FlipBack({ skin = "classic", index = 0 }: { skin?: SkinId; index?: number }) {
+  return (
+    <div className={`flip__face flip__face--back ${skinHostClass(skin)}`} aria-hidden="true">
+      <SkinArt skin={skin} index={index} />
+    </div>
+  );
 }

@@ -5,6 +5,7 @@
 // play one card (with a colour for a wild, optionally calling UNO), draw
 // one, pass after a draw, call UNO, or catch a seat that forgot to.
 import type { Color, RedactedView, RejectionReason, Seat } from "uno";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -73,6 +74,8 @@ export interface SeatStatus {
    * after settlement (see UnoTableDO's refreshSeatCredits). 0 for an empty seat.
    */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {

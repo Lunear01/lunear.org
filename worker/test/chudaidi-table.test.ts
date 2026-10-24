@@ -522,3 +522,22 @@ describe("ChuDaiDTableDO — 2-player hand (minSeats)", () => {
     for (const s of [s0, s1, s2]) s.ws.close();
   });
 });
+
+describe("ChuDaiDTableDO — seat broadcasts carry card skins", () => {
+  it("sends each occupant's equipped skin, classic for NULL and empty seats", async () => {
+    const tableId = `t-skin-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2] = await Promise.all([registerUser("skhost"), registerUser("skp2")]);
+    await env.DB.prepare("UPDATE users SET card_skin = 'nebula' WHERE id = ?").bind(host.id).run();
+    await initTable(tableId, host.cookie, STAKE);
+
+    const s0 = await openTableSocket(tableId, host.cookie);
+    const s1 = await openTableSocket(tableId, p2.cookie);
+    const state = (await s0.nextFrameMatching((m) => m.type === "state" && m.seats[1].userId !== null)) as StateMessage;
+    expect(state.seats[0].cardSkin).toBe("nebula");
+    expect(state.seats[1].cardSkin).toBe("classic");
+    expect(state.seats[2].cardSkin).toBe("classic");
+
+    s0.ws.close();
+    s1.ws.close();
+  });
+});

@@ -467,7 +467,7 @@ function UnoOpponentSeat({
   return (
     <div className={`uno-opponent ${isTurn ? "uno-opponent--turn" : ""}`}>
       <div className="uno-opponent__cards">
-        {count !== null && Array.from({ length: Math.min(count, 12) }).map((_, i) => <UnoCardBack key={i} small />)}
+        {count !== null && Array.from({ length: Math.min(count, 12) }).map((_, i) => <UnoCardBack key={i} small skin={row?.cardSkin} index={i} />)}
       </div>
       <div className="uno-opponent__info">
         <span

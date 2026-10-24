@@ -26,6 +26,9 @@ export function Header() {
             {user.username}
             {user.is_guest && <span className="guest-tag">guest</span>}
           </span>
+          <Link to="/shop" className="button button--ghost">
+            Shop
+          </Link>
           {user.is_admin && (
             <Link to="/admin" className="button button--ghost">
               Admin Panel

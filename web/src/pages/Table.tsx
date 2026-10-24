@@ -380,7 +380,7 @@ function OpponentSeat({
   return (
     <div className="table-opponent">
       <div className="table-opponent__cards">
-        {count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small />)}
+        {count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)}
       </div>
       <div className="table-opponent__info">
         <span

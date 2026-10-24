@@ -9,6 +9,7 @@
 // BlackjackTableDO's file header), so a client only ever renders 'state' and
 // 'settled' (plus 'error').
 import type { RedactedView, RejectionReason, Seat } from "blackjack";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -94,6 +95,8 @@ export interface SeatStatus {
    * staleness caveat. 0 for an empty seat.
    */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {

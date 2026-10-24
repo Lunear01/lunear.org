@@ -25,6 +25,7 @@ import {
   type StateMessage,
 } from "./poker-protocol";
 import { lobbyDoName } from "./lobby";
+import { toSkinId } from "../shop/catalog";
 import type { InitResult, TableInitParams } from "./game-table";
 
 export type { InitResult, TableInitParams };
@@ -154,6 +155,8 @@ interface SeatRow {
   leavePending: 0 | 1;
   /** Cached D1 users.credits — see refreshSeatCredits() for when this is refreshed. */
   credits: number;
+  /** Cached D1 users.card_skin; NULL = classic. */
+  cardSkin: string | null;
 }
 
 interface GameStateRow {
@@ -283,7 +286,8 @@ export class PokerTableDO extends DurableObject<Env> {
         username TEXT NOT NULL,
         ready INTEGER NOT NULL DEFAULT 0,
         leave_pending INTEGER NOT NULL DEFAULT 0,
-        credits INTEGER NOT NULL DEFAULT 0
+        credits INTEGER NOT NULL DEFAULT 0,
+        card_skin TEXT
       )
     `);
     const seatCols = new Set(
@@ -294,6 +298,9 @@ export class PokerTableDO extends DurableObject<Env> {
     );
     if (!seatCols.has("credits")) {
       this.ctx.storage.sql.exec(`ALTER TABLE seats ADD COLUMN credits INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!seatCols.has("card_skin")) {
+      this.ctx.storage.sql.exec(`ALTER TABLE seats ADD COLUMN card_skin TEXT`);
     }
     // No `aborted` column here — poker has no abort concept at all (see the
     // file header) — and the terminal (showdown/finished) state is kept
@@ -1016,6 +1023,7 @@ export class PokerTableDO extends DurableObject<Env> {
         ready: row?.ready === 1,
         leavePending: row?.leavePending === 1,
         credits: row?.credits ?? 0,
+        cardSkin: toSkinId(row?.cardSkin),
       };
     });
 
@@ -1122,7 +1130,7 @@ export class PokerTableDO extends DurableObject<Env> {
   private loadSeats(): SeatRow[] {
     return this.ctx.storage.sql
       .exec<SeatRow>(
-        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits FROM seats ORDER BY seat",
+        "SELECT seat, user_id as userId, username, ready, leave_pending as leavePending, credits, card_skin as cardSkin FROM seats ORDER BY seat",
       )
       .toArray();
   }
@@ -1139,12 +1147,17 @@ export class PokerTableDO extends DurableObject<Env> {
     if (ids.length === 0) return;
     const placeholders = ids.map(() => "?").join(", ");
     const { results } = await this.env.DB.prepare(
-      `SELECT id, credits FROM users WHERE id IN (${placeholders})`,
+      `SELECT id, credits, card_skin as cardSkin FROM users WHERE id IN (${placeholders})`,
     )
       .bind(...ids)
-      .all<{ id: string; credits: number }>();
+      .all<{ id: string; credits: number; cardSkin: string | null }>();
     for (const row of results) {
-      this.ctx.storage.sql.exec("UPDATE seats SET credits = ? WHERE user_id = ?", row.credits, row.id);
+      this.ctx.storage.sql.exec(
+        "UPDATE seats SET credits = ?, card_skin = ? WHERE user_id = ?",
+        row.credits,
+        row.cardSkin,
+        row.id,
+      );
     }
   }
 

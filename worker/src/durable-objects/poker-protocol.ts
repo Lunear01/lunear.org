@@ -9,6 +9,7 @@
 // auto-folds that one seat (see PokerTableDO's file header) — so a client only
 // ever needs to render 'state' and 'settled' (plus 'error').
 import type { RedactedView, RejectionReason, Seat } from "poker";
+import type { SkinId } from "../shop/catalog";
 
 export type { Seat };
 
@@ -88,6 +89,8 @@ export interface SeatStatus {
    * show up here until the next reconnect or settlement. 0 for an empty seat.
    */
   readonly credits: number;
+  /** Occupant's equipped card-back skin, cached and refreshed alongside `credits`. "classic" for an empty seat. */
+  readonly cardSkin: SkinId;
 }
 
 export interface StateMessage {
