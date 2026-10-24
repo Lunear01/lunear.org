@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+// Runtime import of the pure chudaidi engine: hand order (3 high) and the hint.
+import { sortHand, suggestPlay } from "chudaidi";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
-import { sortForHand } from "../ws/cards";
 import type {
   ComboCategory,
   ErrorCode,
@@ -70,8 +71,8 @@ function seatLabel(seats: readonly SeatStatus[] | null, seat: Seat): string {
 }
 
 // Chu Dai D cards share doudizhu's id/rank/suit shape minus jokers, so
-// PlayingCard and sortForHand take them as-is.
-const sortCards = sortForHand;
+// PlayingCard takes them as-is; order comes from the engine (4 low, 3 high).
+const sortCards = sortHand;
 
 export default function ChuDaiDTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
@@ -80,6 +81,7 @@ export default function ChuDaiDTable() {
   const { status, seats, view, error, settled, aborted, send, dismissError } = useChuDaiDSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [hintMessage, setHintMessage] = useState<string | null>(null);
 
   const mySeat = useMemo<Seat | null>(() => {
     if (view) return view.viewer;
@@ -102,6 +104,23 @@ export default function ChuDaiDTable() {
   useEffect(() => {
     if (settled?.newBalance !== undefined) void refresh();
   }, [settled, refresh]);
+
+  useEffect(() => {
+    if (!hintMessage) return;
+    const t = setTimeout(() => setHintMessage(null), 2500);
+    return () => clearTimeout(t);
+  }, [hintMessage]);
+
+  const handleHint = () => {
+    if (view?.phase !== "playing") return;
+    const suggestion = suggestPlay(view.hand, view.lastPlay ? view.lastPlay.combo : null, view.leadCardId);
+    if (suggestion) {
+      setSelected(new Set(suggestion.map((c) => c.id)));
+    } else {
+      setSelected(new Set());
+      setHintMessage("No playable hand — pass");
+    }
+  };
 
   // The settlement panel waits so the winning play is seen before it's covered.
   const [settledVisible, setSettledVisible] = useState(false);
@@ -207,6 +226,12 @@ export default function ChuDaiDTable() {
           </div>
         )}
 
+        {hintMessage && (
+          <p className="hint-toast" role="status">
+            {hintMessage}
+          </p>
+        )}
+
         <div className="table-actions">
           {myTurn && (
             <>
@@ -217,6 +242,9 @@ export default function ChuDaiDTable() {
                 onClick={() => send({ type: "pass" })}
               >
                 Pass
+              </button>
+              <button type="button" className="button" onClick={handleHint}>
+                Hint
               </button>
               <button
                 type="button"

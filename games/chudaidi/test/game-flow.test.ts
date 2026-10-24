@@ -3,9 +3,9 @@ import { createDeck } from "../src/cards";
 import { createGame, type GameState, type PlayingState } from "../src/game";
 import { buildDealOrder, expectRejected, pass, play } from "./helpers";
 
-// Seat 1 holds 3D (the lowest card) so it leads; seat 0 holds a strong hand.
-const SEAT0 = ["4D", "5D", "6D", "7D", "8D", "9S", "9H", "9D", "KS", "KH", "AS", "2S", "2H"];
-const SEAT1 = ["3D", "3C", "3H", "4C", "5C", "6C", "7C", "8C", "10S", "JS", "QS", "AD", "2D"];
+// Seat 1 holds 4D (the lowest card) so it leads; seat 0 holds a strong hand.
+const SEAT0 = ["3D", "5D", "6D", "7D", "8D", "9S", "9H", "9D", "KS", "KH", "AS", "2S", "2H"];
+const SEAT1 = ["4D", "3C", "3H", "4C", "5C", "6C", "7C", "8C", "10S", "JS", "QS", "AD", "2D"];
 const SEAT2 = ["3S", "4H", "5H", "6H", "7H", "8H", "10H", "JH", "QH", "KD", "AH", "2C", "10D"];
 const SEAT3 = ["4S", "5S", "6S", "7S", "8S", "9C", "10C", "JC", "QC", "KC", "AC", "JD", "QD"];
 
@@ -19,12 +19,12 @@ describe("createGame", () => {
     expect(state.activeSeats).toEqual([0, 1, 2, 3]);
     for (const seat of [0, 1, 2, 3] as const) expect(state.hands[seat]).toHaveLength(13);
     expect(state.currentTurn).toBe(1);
-    expect(state.leadCardId).toBe("3D");
+    expect(state.leadCardId).toBe("4D");
     expect(state.lastPlay).toBeNull();
   });
 
   it("leaves inactive seats empty and leads with the lowest dealt card", () => {
-    // Only seats 0 and 2 play; seat 1's block (holding 3D) stays undealt.
+    // Only seats 0 and 2 play; seat 1's block (holding 4D) stays undealt.
     const state = createGame({
       shuffledDeck: buildDealOrder({ 0: SEAT0, 1: SEAT1, 2: SEAT2, 3: SEAT3 }),
       activeSeats: [2, 0],
@@ -33,7 +33,7 @@ describe("createGame", () => {
     expect(state.activeSeats).toEqual([0, 2]);
     expect(state.hands[1]).toEqual([]);
     expect(state.hands[3]).toEqual([]);
-    expect(state.leadCardId).toBe("3S");
+    expect(state.leadCardId).toBe("4H");
     expect(state.currentTurn).toBe(2);
   });
 
@@ -49,11 +49,11 @@ describe("first play", () => {
     const state = fourSeatGame();
     expectRejected(state, 1, { type: "play", cardIds: ["3C"] }, "must-include-lead-card");
     expectRejected(state, 1, { type: "play", cardIds: ["3C", "3H"] }, "must-include-lead-card");
-    const next = play(state, 1, ["3D", "3C", "3H"]);
+    const next = play(state, 1, ["4D", "4C"]);
     expect(next.phase).toBe("playing");
     if (next.phase !== "playing") throw new Error("unreachable");
     expect(next.leadCardId).toBeNull();
-    expect(next.lastPlay?.combo.category).toBe("triple");
+    expect(next.lastPlay?.combo.category).toBe("pair");
     expect(next.currentTurn).toBe(2);
   });
 
@@ -62,7 +62,7 @@ describe("first play", () => {
   });
 
   it("may be a five-card hand holding the lead card", () => {
-    const next = play(fourSeatGame(), 1, ["3D", "4C", "5C", "6C", "7C"]);
+    const next = play(fourSeatGame(), 1, ["4D", "5C", "6C", "7C", "8C"]);
     if (next.phase !== "playing") throw new Error("unreachable");
     expect(next.lastPlay?.combo.category).toBe("straight");
   });
@@ -71,20 +71,20 @@ describe("first play", () => {
 describe("rejections", () => {
   it("refuses out-of-turn actions and wrong phases", () => {
     const state = fourSeatGame();
-    expectRejected(state, 0, { type: "play", cardIds: ["4D"] }, "not-your-turn");
+    expectRejected(state, 0, { type: "play", cardIds: ["3D"] }, "not-your-turn");
     expectRejected(state, 2, { type: "pass" }, "not-your-turn");
   });
 
   it("refuses empty, duplicate, foreign and shapeless selections", () => {
-    const state = play(fourSeatGame(), 1, ["3D"]);
+    const state = play(fourSeatGame(), 1, ["4D"]);
     expectRejected(state, 2, { type: "play", cardIds: [] }, "empty-play");
     expectRejected(state, 2, { type: "play", cardIds: ["3S", "3S"] }, "invalid-cards");
-    expectRejected(state, 2, { type: "play", cardIds: ["4D"] }, "cards-not-in-hand");
+    expectRejected(state, 2, { type: "play", cardIds: ["3D"] }, "cards-not-in-hand");
     expectRejected(state, 2, { type: "play", cardIds: ["4H", "5H", "KD"] }, "invalid-cards");
   });
 
   it("requires the same card count, then a stronger combo", () => {
-    const state = play(fourSeatGame(), 1, ["3D", "3C"]);
+    const state = play(fourSeatGame(), 1, ["4D", "4C"]);
     expectRejected(state, 2, { type: "play", cardIds: ["4H"] }, "wrong-card-count");
     expectRejected(state, 2, { type: "play", cardIds: ["3S", "4H", "5H", "6H", "7H"] }, "wrong-card-count");
     expectRejected(state, 2, { type: "play", cardIds: ["3S", "4H"] }, "invalid-cards");
@@ -93,7 +93,7 @@ describe("rejections", () => {
   });
 
   it("refuses a pair that does not outrank the pair on the table", () => {
-    let state: GameState = play(fourSeatGame(), 1, ["3D", "3H"]);
+    let state: GameState = play(fourSeatGame(), 1, ["4D", "4C"]);
     state = play(state, 2, ["10H", "10D"]);
     state = play(state, 3, ["JD", "JC"]);
     expectRejected(state, 0, { type: "play", cardIds: ["9S", "9H"] }, "must-beat-previous");
@@ -104,7 +104,7 @@ describe("rejections", () => {
   it("refuses a five-card hand that does not outrank the one on the table", () => {
     // Seat 1 leads a straight; seat 2's straight flush beats it; seat 3's
     // plain straight cannot follow a straight flush.
-    const state = play(fourSeatGame(), 1, ["3D", "4C", "5C", "6C", "7C"]);
+    const state = play(fourSeatGame(), 1, ["4D", "5C", "6C", "7C", "8C"]);
     const beaten = play(state, 2, ["4H", "5H", "6H", "7H", "8H"]);
     expect(beaten.phase).toBe("playing");
     expectRejected(beaten, 3, { type: "play", cardIds: ["9C", "10C", "JC", "QD", "KC"] }, "must-beat-previous");
@@ -116,7 +116,7 @@ describe("rejections", () => {
 
 describe("pass flow", () => {
   it("clears the trick once every other seat has passed and hands the lead back", () => {
-    let state = play(fourSeatGame(), 1, ["3D"]);
+    let state = play(fourSeatGame(), 1, ["4D"]);
     state = pass(state, 2);
     state = pass(state, 3);
     if (state.phase !== "playing") throw new Error("unreachable");
@@ -134,7 +134,7 @@ describe("pass flow", () => {
   });
 
   it("keeps the trick alive while someone still beats it", () => {
-    let state = play(fourSeatGame(), 1, ["3D"]);
+    let state = play(fourSeatGame(), 1, ["4D"]);
     state = play(state, 2, ["3S"]);
     state = pass(state, 3);
     state = pass(state, 0);
@@ -149,7 +149,7 @@ describe("pass flow", () => {
   });
 
   it("records plays and passes in history", () => {
-    let state = play(fourSeatGame(), 1, ["3D"]);
+    let state = play(fourSeatGame(), 1, ["4D"]);
     state = pass(state, 2);
     expect(state.history.map((h) => [h.seat, h.combo?.category ?? null])).toEqual([
       [1, "single"],
@@ -166,11 +166,11 @@ describe("finishing", () => {
       activeSeats: [0, 1],
       baseStake: 10,
     });
-    state = play(state, 1, ["3D", "4C", "5C", "6C", "7C"]);
+    state = play(state, 1, ["4D", "5C", "6C", "7C", "8C"]);
     state = pass(state, 0);
     state = play(state, 1, ["3C", "3H"]);
     state = pass(state, 0);
-    state = play(state, 1, ["8C"]);
+    state = play(state, 1, ["4C"]);
     state = pass(state, 0);
     state = play(state, 1, ["10S"]);
     state = pass(state, 0);

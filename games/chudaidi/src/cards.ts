@@ -1,6 +1,7 @@
-// Card model. Ranks are numeric so `<`/`>` gives strength order 3<4<...<K<A<2.
-// Suits also order (D<C<H<S), so every card has a unique strength (cardValue).
-// Rank numbers and suit letters match doudizhu's so web can reuse PlayingCard.
+// Card model. Rank numbers (3..15, 2 = 15) and suit letters match doudizhu's
+// so web can reuse PlayingCard; they are labels, not strength. Strength order
+// is 4<5<...<K<A<2<3 (rankStrength), then suit D<C<H<S, so every card has a
+// unique cardValue.
 export type Suit = "D" | "C" | "H" | "S";
 
 export const RANK = {
@@ -60,9 +61,16 @@ export function createDeck(): Card[] {
   return deck;
 }
 
-/** Total order over cards: rank first, then suit. */
+/** Strength index of a rank: 4 -> 0 ... A -> 10, 2 -> 11, 3 -> 12 (highest). */
+export function rankStrength(rank: Rank): number {
+  return rank === RANK.Three ? 12 : rank - 4;
+}
+
+export const MAX_STRENGTH = 12;
+
+/** Total order over cards: rank strength first, then suit. */
 export function cardValue(card: Card): number {
-  return card.rank * 4 + SUIT_ORDER[card.suit];
+  return rankStrength(card.rank) * 4 + SUIT_ORDER[card.suit];
 }
 
 export function compareCards(a: Card, b: Card): number {

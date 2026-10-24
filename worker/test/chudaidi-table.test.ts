@@ -167,9 +167,9 @@ async function creditsOf(users: readonly { id: string }[]): Promise<number[]> {
 
 // --- Scripted deck ------------------------------------------------------------
 //
-// Seat 0's block holds 3D (the lowest card, so seat 0 leads) and sheds all 13
-// cards in three plays while every other seat passes: a 3-7 straight flush,
-// an 8-Q straight flush, then triple kings. The other blocks are filler in
+// Seat 0's block holds 4D (the lowest card, so seat 0 leads) and sheds all 13
+// cards in three plays while every other seat passes: a 3-4-5-6-7 straight
+// flush (the top of the ladder), an 8-Q straight flush, then triple kings. The other blocks are filler in
 // deck order; their content never matters beyond "13 cards to pay for".
 const SEAT0_IDS = ["3D", "4D", "5D", "6D", "7D", "8D", "9D", "10D", "JD", "QD", "KS", "KH", "KD"];
 const SEAT0_PLAYS: readonly (readonly string[])[] = [
@@ -269,7 +269,7 @@ describe("ChuDaiDTableDO — full scripted hand", () => {
 
     // The dealt view carries the lead-card rule and the right hand.
     const dealt = playingView(sockets[0].messages.find((m) => playingView(m) !== null)!)!;
-    expect(dealt.leadCardId).toBe("3D");
+    expect(dealt.leadCardId).toBe("4D");
     expect(dealt.hand.map((c) => c.id)).toEqual(SEAT0_IDS);
     expect(dealt.handCounts).toEqual({ 0: 13, 1: 13, 2: 13, 3: 13 });
 
@@ -332,12 +332,12 @@ describe("ChuDaiDTableDO — rejected plays", () => {
     await s1.nextFrameMatching((m) => m.type === "error" && m.code === "not-your-turn");
     send(s0, { type: "pass" });
     await s0.nextFrameMatching((m) => m.type === "error" && m.code === "cannot-pass-on-lead");
-    send(s0, { type: "play", cardIds: ["4D"] });
+    send(s0, { type: "play", cardIds: ["3D"] });
     await s0.nextFrameMatching((m) => m.type === "error" && m.code === "must-include-lead-card");
-    send(s0, { type: "play", cardIds: "3D" });
+    send(s0, { type: "play", cardIds: "4D" });
     await s0.nextFrameMatching((m) => m.type === "error" && m.code === "bad-message");
 
-    send(s0, { type: "play", cardIds: ["3D"] });
+    send(s0, { type: "play", cardIds: ["4D"] });
     const next = playingView(await s1.nextFrameMatching((m) => playingView(m)?.currentTurn === 1))!;
     expect(next.lastPlay?.combo.category).toBe("single");
     expect(next.handCounts[0]).toBe(12);

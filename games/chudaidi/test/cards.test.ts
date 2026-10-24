@@ -19,19 +19,22 @@ describe("createDeck", () => {
 });
 
 describe("card order", () => {
-  it("orders 3D lowest and 2S highest", () => {
+  it("orders 4D lowest and 3S highest", () => {
     const deck = createDeck();
     const sorted = sortHand(deck);
-    expect(sorted[0].id).toBe("3D");
-    expect(sorted[51].id).toBe("2S");
+    expect(sorted[0].id).toBe("4D");
+    expect(sorted[1].id).toBe("4C");
+    expect(sorted[50].id).toBe("3H");
+    expect(sorted[51].id).toBe("3S");
   });
 
-  it("ranks by rank first, then suit D<C<H<S", () => {
-    const [threeS, fourD, threeH, threeC] = cardsOf(["3S", "4D", "3H", "3C"]);
-    expect(compareCards(threeS, fourD)).toBeLessThan(0);
+  it("ranks 4 < 5 < ... < A < 2 < 3, then suit D<C<H<S", () => {
+    const [fourS, fiveD, twoS, threeD, threeH, threeC, aceS] = cardsOf(["4S", "5D", "2S", "3D", "3H", "3C", "AS"]);
+    expect(compareCards(fourS, fiveD)).toBeLessThan(0);
+    expect(compareCards(aceS, twoS)).toBeLessThan(0);
+    expect(compareCards(twoS, threeD)).toBeLessThan(0);
     expect(compareCards(threeC, threeH)).toBeLessThan(0);
-    expect(compareCards(threeH, threeS)).toBeLessThan(0);
-    expect(cardValue(threeS)).toBeGreaterThan(cardValue(threeH));
+    expect(cardValue(threeH)).toBeGreaterThan(cardValue(threeC));
   });
 });
 

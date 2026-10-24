@@ -46,36 +46,38 @@ describe("classifyCombo — shapes", () => {
 });
 
 describe("classifyCombo — straight ladder", () => {
-  it("allows 10-J-Q-K-A, A-2-3-4-5 and 2-3-4-5-6", () => {
+  it("allows 10-J-Q-K-A, J-Q-K-A-2, 2-3-4-5-6 and 3-4-5-6-7", () => {
     expect(category(["10D", "JC", "QH", "KS", "AD"])).toBe("straight");
-    expect(category(["AD", "2C", "3H", "4S", "5D"])).toBe("straight");
+    expect(category(["JD", "QC", "KH", "AS", "2D"])).toBe("straight");
     expect(category(["2D", "3C", "4H", "5S", "6D"])).toBe("straight");
+    expect(category(["3D", "4C", "5H", "6S", "7D"])).toBe("straight");
   });
 
-  it("rejects J-Q-K-A-2", () => {
-    expect(category(["JD", "QC", "KH", "AS", "2D"])).toBeNull();
+  it("rejects Q-K-A-2-3 and A-2-3-4-5", () => {
+    expect(category(["QD", "KC", "AH", "2S", "3D"])).toBeNull();
+    expect(category(["AD", "2C", "3H", "4S", "5D"])).toBeNull();
   });
 
-  it("orders 2-3-4-5-6 above A-2-3-4-5 above 10-J-Q-K-A above 3-4-5-6-7", () => {
-    const low = combo(["3D", "4C", "5H", "6S", "7D"]);
-    const broadway = combo(["10D", "JC", "QH", "KS", "AD"]);
-    const wheel = combo(["AC", "2C", "3C", "4S", "5D"]);
-    const top = combo(["2H", "3S", "4D", "5C", "6H"]);
-    expect(beats(low, broadway)).toBe(true);
-    expect(beats(broadway, wheel)).toBe(true);
-    expect(beats(wheel, top)).toBe(true);
-    expect(beats(top, wheel)).toBe(false);
+  it("orders 3-4-5-6-7 above 2-3-4-5-6 above J-Q-K-A-2 above 4-5-6-7-8", () => {
+    const low = combo(["4D", "5C", "6H", "7S", "8D"]);
+    const twoTop = combo(["JD", "QC", "KH", "AS", "2D"]);
+    const wrapTwo = combo(["2C", "3C", "4C", "5S", "6D"]);
+    const top = combo(["3H", "4S", "5D", "6C", "7H"]);
+    expect(beats(low, twoTop)).toBe(true);
+    expect(beats(twoTop, wrapTwo)).toBe(true);
+    expect(beats(wrapTwo, top)).toBe(true);
+    expect(beats(top, wrapTwo)).toBe(false);
   });
 
-  it("breaks equal straights by the suit of the top-ranked card", () => {
-    const diamondTop = combo(["3D", "4C", "5H", "6S", "7D"]);
-    const spadeTop = combo(["3C", "4H", "5S", "6D", "7S"]);
+  it("breaks equal straights by the suit of the strongest card", () => {
+    const diamondTop = combo(["4D", "5C", "6H", "7S", "8D"]);
+    const spadeTop = combo(["4C", "5H", "6S", "7D", "8S"]);
     expect(beats(diamondTop, spadeTop)).toBe(true);
     expect(beats(spadeTop, diamondTop)).toBe(false);
-    // Wrap straights: the 2 is the top-ranked card.
-    const wheelClubTwo = combo(["AS", "2C", "3C", "4S", "5D"]);
-    const wheelSpadeTwo = combo(["AD", "2S", "3H", "4D", "5C"]);
-    expect(beats(wheelClubTwo, wheelSpadeTwo)).toBe(true);
+    // Wrap straights: the 3 is the strongest card.
+    const wrapClubThree = combo(["2S", "3C", "4C", "5S", "6D"]);
+    const wrapSpadeThree = combo(["2D", "3S", "4H", "5D", "6C"]);
+    expect(beats(wrapClubThree, wrapSpadeThree)).toBe(true);
   });
 });
 
@@ -84,12 +86,15 @@ describe("beats — singles, pairs, triples", () => {
     expect(beats(combo(["7H"]), combo(["7S"]))).toBe(true);
     expect(beats(combo(["7S"]), combo(["7H"]))).toBe(false);
     expect(beats(combo(["AS"]), combo(["2D"]))).toBe(true);
+    expect(beats(combo(["2S"]), combo(["3D"]))).toBe(true);
+    expect(beats(combo(["3D"]), combo(["4S"]))).toBe(false);
   });
 
   it("compares pairs by rank, then by the higher suit in the pair", () => {
     expect(beats(combo(["7D", "7C"]), combo(["7H", "7S"]))).toBe(true);
     expect(beats(combo(["7D", "7S"]), combo(["7H", "7C"]))).toBe(false);
     expect(beats(combo(["7H", "7S"]), combo(["8D", "8C"]))).toBe(true);
+    expect(beats(combo(["2H", "2S"]), combo(["3D", "3C"]))).toBe(true);
   });
 
   it("compares triples by rank", () => {
@@ -118,13 +123,15 @@ describe("beats — five-card hands", () => {
     expect(beats(flush, straight)).toBe(false);
   });
 
-  it("compares flushes by suit first, then top card", () => {
-    const highDiamonds = combo(["3D", "5D", "8D", "9D", "AD"]);
+  it("compares flushes by suit first, then strongest card (3 beats 2)", () => {
+    const aceDiamonds = combo(["4D", "5D", "8D", "9D", "AD"]);
     const lowClubs = combo(["3C", "4C", "6C", "8C", "9C"]);
-    expect(beats(highDiamonds, lowClubs)).toBe(true);
-    const higherDiamonds = combo(["4D", "6D", "7D", "10D", "2D"]);
-    expect(beats(highDiamonds, higherDiamonds)).toBe(true);
-    expect(beats(higherDiamonds, highDiamonds)).toBe(false);
+    expect(beats(aceDiamonds, lowClubs)).toBe(true);
+    const twoDiamonds = combo(["4D", "6D", "7D", "10D", "2D"]);
+    const threeDiamonds = combo(["3D", "5D", "7D", "9D", "JD"]);
+    expect(beats(aceDiamonds, twoDiamonds)).toBe(true);
+    expect(beats(twoDiamonds, threeDiamonds)).toBe(true);
+    expect(beats(threeDiamonds, twoDiamonds)).toBe(false);
   });
 
   it("compares full houses by the triple and four of a kind by the quad", () => {
@@ -134,10 +141,11 @@ describe("beats — five-card hands", () => {
   });
 
   it("compares straight flushes like straights", () => {
-    const low = combo(["3H", "4H", "5H", "6H", "7H"]);
-    const high = combo(["3S", "4S", "5S", "6S", "7S"]);
+    const low = combo(["4H", "5H", "6H", "7H", "8H"]);
+    const high = combo(["4S", "5S", "6S", "7S", "8S"]);
     expect(beats(low, high)).toBe(true);
-    const topLadder = combo(["2D", "3D", "4D", "5D", "6D"]);
+    const topLadder = combo(["3D", "4D", "5D", "6D", "7D"]);
     expect(beats(high, topLadder)).toBe(true);
+    expect(beats(topLadder, high)).toBe(false);
   });
 });
