@@ -13,6 +13,11 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-24 — Static skin prices tiered by design complexity: Bauhaus 1,000, Jade Dynasty
+  2,000, Crimson Lacquer 2,500, Midnight Deco 3,000. Animated skins stay at 10,000.
+- 2026-10-24 — Four more skins: Jade Dynasty and Bauhaus (static, 8,000), Aurora and
+  Thunderstrike (animated, 10,000). Per-skin motion, burst, moment and aura settings now live
+  in lookup tables in `web/src/skins/`.
 - 2026-10-24 — Skins style card fronts too: a seat's own hand, its played cards, poker hole cards,
   Blackjack hands (shared cards stay classic). Animated skins get their own entrance and ambient
   motion, a burst on each play, full-screen moments (bomb/rocket, Blackjack, UNO call, pot win,

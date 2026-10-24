@@ -210,6 +210,89 @@ void main() {
 }
 `;
 
+export const AURORA = COMMON + `
+// Curtain layer: bright lower edge, rays fading upward.
+vec3 curtain(vec2 p, float fi, float t) {
+  float x = p.x * 1.3 + fi * 0.9 + u_seed;
+  float base = 0.35 - fi * 0.32 + sin(x * 2.1 + t * 0.55 + fi) * 0.22 + (fbm(vec2(x * 1.4, t * 0.12 + fi)) - 0.5) * 0.6;
+  float y = p.y - base;
+  float edge = smoothstep(-0.04, 0.06, y) * exp(-max(y, 0.0) * 2.2);
+  float rays = 0.55 + 0.45 * noise(vec2(x * 14.0, t * 0.4 + fi * 3.0));
+  vec3 tint = mix(vec3(0.15, 1.0, 0.6), vec3(0.65, 0.3, 0.95), clamp(y * 1.2 + fi * 0.25, 0.0, 1.0));
+  return tint * edge * rays;
+}
+
+void main() {
+  vec2 p = cardSpace();
+  float t = u_time;
+  vec3 col = mix(vec3(0.01, 0.05, 0.1), vec3(0.0, 0.01, 0.04), v_uv.y);
+
+  vec2 g = v_uv * vec2(16.0, 22.0);
+  vec2 id = floor(g);
+  float h = hash(id + u_seed * 7.0);
+  vec2 f = fract(g) - 0.5 - (hash2(id) - 0.5) * 0.5;
+  col += vec3(0.85, 0.9, 1.0) * step(0.86, h) * smoothstep(0.08, 0.0, length(f)) * (0.5 + 0.5 * sin(t * 2.0 + h * 30.0)) * 0.8;
+
+  for (int i = 0; i < 3; i++) col += curtain(p, float(i), t) * 0.95;
+
+  // Snowy ridge along the bottom.
+  float ridge = -1.05 + 0.22 * fbm(vec2(p.x * 1.8 + u_seed, 1.0)) + 0.12 * abs(sin(p.x * 2.4 + u_seed));
+  float below = smoothstep(ridge + 0.01, ridge - 0.01, p.y);
+  vec3 snow = mix(vec3(0.05, 0.09, 0.16), vec3(0.75, 0.85, 0.95), smoothstep(ridge - 0.12, ridge, p.y));
+  col = mix(col, snow, below);
+
+  float frame = 1.0 - u_face;
+  float d = rimDist(p, 0.07);
+  float a = atan(p.y, p.x * 1.4);
+  float glint = pow(0.5 + 0.5 * cos(a + t * 0.9), 30.0);
+  col = mix(col, vec3(0.75, 0.85, 0.9) + glint * 0.6, smoothstep(0.03, 0.0, abs(d)) * frame);
+
+  col *= mix(1.0, 0.5, u_face);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+export const STORM = COMMON + `
+// Distance to a jagged vertical bolt; reseeded every strike.
+float bolt(vec2 p, float strike, float x0) {
+  float jag = (noise(vec2(p.y * 5.0, strike)) - 0.5) * 0.55 + (noise(vec2(p.y * 17.0, strike + 4.0)) - 0.5) * 0.16;
+  return abs(p.x - x0 - jag);
+}
+
+void main() {
+  vec2 p = cardSpace();
+  float t = u_time;
+
+  vec2 q = p * 1.3 + vec2(t * 0.06, 0.0) + u_seed * 3.0;
+  float c = fbm(q + fbm(q * 1.6 - t * 0.04));
+  vec3 col = mix(vec3(0.03, 0.04, 0.08), vec3(0.3, 0.35, 0.48), smoothstep(0.25, 0.8, c));
+  // Faint glow flickering inside the clouds between strikes.
+  col += vec3(0.15, 0.22, 0.4) * smoothstep(0.55, 0.85, c) * (0.5 + 0.5 * sin(t * 7.0 + c * 20.0)) * 0.35;
+
+  // One strike per 2.4s, offset per variant.
+  float clock = t / 2.4 + u_seed * 0.37;
+  float strike = floor(clock);
+  float cycle = fract(clock);
+  float flash = exp(-cycle * 22.0) + 0.6 * exp(-abs(cycle - 0.07) * 45.0);
+  float x0 = (hash(vec2(strike, u_seed)) - 0.5) * 1.1;
+  float tip = 1.4 - min(cycle / 0.035, 1.0) * 2.9;
+  float shown = step(tip, p.y) * (1.0 - smoothstep(0.12, 0.34, cycle));
+  float d = bolt(p, strike, x0);
+  float branch = abs(p.x - x0 - (1.4 - p.y) * 0.35 * sign(x0 + 0.01) - (noise(vec2(p.y * 9.0, strike + 9.0)) - 0.5) * 0.2);
+  branch += step(p.y, 0.2) * 9.0;
+  float glow = 0.006 / (d + 0.006) + 0.003 / (branch + 0.004) * 0.6;
+  col += vec3(0.65, 0.82, 1.0) * glow * shown * (0.8 + flash);
+  col += vec3(0.3, 0.4, 0.65) * flash * (0.4 + c);
+
+  float frame = 1.0 - u_face;
+  float r = rimDist(p, 0.07);
+  col = mix(col, vec3(0.35, 0.45, 0.6) + flash * 0.5, smoothstep(0.035, 0.0, abs(r)) * frame);
+
+  col *= mix(1.0, 0.5, u_face);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
 // Full-screen big-moment overlays. Premultiplied alpha over the table;
 // u_fade is the 0..1 envelope, u_res the canvas size in pixels.
 const MOMENT_HEAD = COMMON + `
@@ -288,6 +371,43 @@ void main() {
     col += fireRamp(0.85 - life * 0.5) * exp(-dot(d, d) * 1800.0) * (1.0 - life) * 1.1;
   }
 
+  emit(col);
+}
+`;
+
+export const AURORA_SKY = MOMENT_HEAD + `
+void main() {
+  vec2 p = screenSpace();
+  float t = u_time;
+  vec3 col = vec3(0.0);
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float x = p.x * 1.1 + fi * 1.3;
+    float base = -0.2 - fi * 0.25 + sin(x * 1.6 + t * 1.2 + fi) * 0.25 + (fbm(vec2(x, t * 0.3 + fi)) - 0.5) * 0.5;
+    float y = p.y - base;
+    float edge = smoothstep(-0.05, 0.08, y) * exp(-max(y, 0.0) * 1.6);
+    float rays = 0.5 + 0.5 * noise(vec2(x * 10.0, t + fi * 3.0));
+    col += mix(vec3(0.15, 0.95, 0.6), vec3(0.6, 0.3, 0.9), clamp(y + fi * 0.2, 0.0, 1.0)) * edge * rays * 0.8;
+  }
+  emit(col);
+}
+`;
+
+export const TEMPEST = MOMENT_HEAD + `
+void main() {
+  vec2 p = screenSpace();
+  float t = u_time;
+  float flash = exp(-t * 9.0) + 0.7 * exp(-abs(t - 0.18) * 30.0);
+  vec3 col = vec3(0.25, 0.32, 0.5) * flash * (0.6 + 0.4 * fbm(p * 2.0));
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float x0 = (fi - 1.0) * 0.8 + (hash(vec2(fi, 3.0)) - 0.5) * 0.4;
+    float tip = 1.0 - min(t / 0.12, 1.0) * 2.2;
+    float jag = (noise(vec2(p.y * 4.0, fi * 7.0)) - 0.5) * 0.5 + (noise(vec2(p.y * 14.0, fi * 3.0)) - 0.5) * 0.12;
+    float d = abs(p.x - x0 - jag);
+    float shown = step(tip, p.y) * exp(-max(t - 0.12 - fi * 0.08, 0.0) * 3.0);
+    col += vec3(0.7, 0.85, 1.0) * (0.004 / (d + 0.004)) * shown;
+  }
   emit(col);
 }
 `;

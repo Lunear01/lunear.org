@@ -77,6 +77,48 @@
   background: linear-gradient(125deg, rgba(255, 255, 255, 0.22) 0%, transparent 32%, transparent 70%, rgba(0, 0, 0, 0.3) 100%);
 }
 
+/* ---------- Jade Dynasty (static) ---------- */
+
+.skin-art--jade-dynasty {
+  background:
+    radial-gradient(circle at 50% 50%, #f3e2a8 0 7%, #b8912f 7.5% 9%, transparent 9.5%),
+    radial-gradient(circle at 50% 50%, transparent 0 14%, rgba(233, 245, 238, 0.85) 14.5% 16%, transparent 16.5%),
+    repeating-linear-gradient(0deg, transparent 0 7px, rgba(233, 245, 238, 0.22) 7px 8px),
+    repeating-linear-gradient(90deg, transparent 0 7px, rgba(233, 245, 238, 0.22) 7px 8px),
+    radial-gradient(ellipse at 40% 30%, #3fa77a, #176448 55%, #0b3626);
+  box-shadow:
+    inset 0 0 0 1px #d9b45a,
+    inset 0 0 0 3px #0b3626,
+    inset 0 0 0 4px rgba(233, 245, 238, 0.7);
+}
+
+/* Square hole of the coin. */
+.skin-art--jade-dynasty::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: #0b3626;
+}
+
+/* ---------- Bauhaus (static) ---------- */
+
+.skin-art--bauhaus {
+  background:
+    radial-gradient(circle at 36% 36%, #e8402c 0 13%, transparent 13.5%),
+    radial-gradient(circle at 62% 62%, transparent 0 19%, #f4efe4 19.5% 21.5%, transparent 22%),
+    linear-gradient(90deg, transparent 49.4%, #f4efe4 49.4% 50.6%, transparent 50.6%),
+    linear-gradient(0deg, transparent 0 74%, #d9a441 74% 80%, transparent 80%),
+    #121212;
+  box-shadow:
+    inset 0 0 0 1px #f4efe4,
+    inset 0 0 0 4px #121212,
+    inset 0 0 0 5px #f4efe4;
+}
+
 /* ---------- Animated skins ---------- */
 
 .skin-art--nebula {
@@ -88,6 +130,16 @@
 .skin-art--molten-core {
   background: radial-gradient(ellipse at 50% 55%, #ff8a1f, #7a1606 40%, #120605 75%);
   box-shadow: inset 0 0 0 1px #3a2a20;
+}
+
+.skin-art--aurora {
+  background: linear-gradient(180deg, #021226, #06304a 60%, #c8d8e8);
+  box-shadow: inset 0 0 0 1px #b9d3dc;
+}
+
+.skin-art--thunderstrike {
+  background: radial-gradient(ellipse at 50% 30%, #3a4664, #111726 70%);
+  box-shadow: inset 0 0 0 1px #5a6d94;
 }
 
 .skin-art__canvas {
@@ -106,6 +158,14 @@
 
 .skin-art--nebula .skin-art__glow {
   box-shadow: inset 0 0 10px 1px rgba(214, 140, 255, 0.85);
+}
+
+.skin-art--aurora .skin-art__glow {
+  box-shadow: inset 0 0 10px 1px rgba(90, 240, 170, 0.75);
+}
+
+.skin-art--thunderstrike .skin-art__glow {
+  box-shadow: inset 0 0 10px 1px rgba(130, 175, 255, 0.8);
 }
 
 .skin-art--molten-core .skin-art__glow {
@@ -162,6 +222,50 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: radial-gradient(circle, #fff3c4 0 25%, #ffae3d 45%, rgba(255, 80, 0, 0) 72%);
+}
+
+.fx-ribbon {
+  position: absolute;
+  left: 10%;
+  top: 25%;
+  width: 80%;
+  height: 26%;
+  border-radius: 50%;
+  transform: rotate(-12deg);
+  background: linear-gradient(90deg, transparent, rgba(110, 255, 190, 0.4) 35%, rgba(180, 130, 255, 0.35) 70%, transparent);
+  filter: blur(3px);
+}
+
+.fx-arc {
+  position: absolute;
+  left: 25%;
+  top: 49%;
+  width: 50%;
+  height: 2%;
+  min-height: 1.5px;
+  transform: rotate(-54deg);
+  background: linear-gradient(90deg, transparent, #cfe4ff 30%, #ffffff 50%, #cfe4ff 70%, transparent);
+  box-shadow: 0 0 6px rgba(140, 190, 255, 0.95);
+}
+
+.fx-snow {
+  position: absolute;
+  top: 2%;
+  width: 5%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0 35%, rgba(255, 255, 255, 0) 70%);
+}
+
+.fx-zap {
+  position: absolute;
+  width: 14%;
+  aspect-ratio: 1;
+  margin: -7% 0 0 -7%;
+  background:
+    linear-gradient(35deg, transparent 45%, #eaf3ff 50%, transparent 55%),
+    linear-gradient(-55deg, transparent 45%, #eaf3ff 50%, transparent 55%),
+    radial-gradient(circle, #ffffff 0 10%, rgba(120, 170, 255, 0.6) 25%, transparent 45%);
 }
 
 /* ---------- Card fronts (useSkinFace) ---------- */
@@ -242,6 +346,61 @@
   opacity: 0.55;
 }
 
+/* Jade Dynasty */
+.playing-card.face--jade-dynasty {
+  background: linear-gradient(160deg, #f4fbf6, #e2f1e8);
+  border-color: #2f7d5b;
+}
+.playing-card.face--jade-dynasty::before {
+  inset: 2px;
+  border: 3px double #3f9a72;
+  border-radius: 4px;
+}
+.playing-card--black.face--jade-dynasty { color: #10261c; }
+.playing-card--red.face--jade-dynasty { color: #b0242a; }
+.playing-card--joker.face--jade-dynasty { color: #a17d22; }
+
+/* Bauhaus */
+.playing-card.face--bauhaus {
+  background: #fbfaf7;
+  border: 2px solid #121212;
+  font-family: Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+}
+.playing-card.face--bauhaus::before {
+  right: 8%;
+  bottom: 6%;
+  width: 14%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #e8402c;
+}
+.playing-card--black.face--bauhaus { color: #121212; }
+.playing-card--red.face--bauhaus { color: #e8402c; }
+.playing-card--joker.face--bauhaus { color: #c48d2c; }
+
+/* Aurora */
+.playing-card.face--aurora {
+  background: #031424;
+  border-color: #8fe0c4;
+}
+.playing-card--black.face--aurora { color: #c9f7e6; text-shadow: 0 0 5px rgba(70, 230, 160, 0.85); }
+.playing-card--red.face--aurora { color: #e2b8ff; text-shadow: 0 0 5px rgba(170, 100, 255, 0.85); }
+.playing-card--joker.face--aurora { color: #fff1b0; text-shadow: 0 0 6px rgba(140, 255, 200, 0.9); }
+
+/* Thunderstrike */
+.playing-card.face--thunderstrike {
+  background: #0d1220;
+  border-color: #7d93c4;
+}
+.playing-card--black.face--thunderstrike { color: #e4ecff; text-shadow: 0 0 5px rgba(120, 165, 255, 0.85); }
+.playing-card--red.face--thunderstrike { color: #ffd166; text-shadow: 0 0 5px rgba(255, 190, 60, 0.85); }
+.playing-card--joker.face--thunderstrike { color: #ffffff; text-shadow: 0 0 7px rgba(150, 190, 255, 1); }
+
+.face--aurora .playing-card__pip,
+.face--thunderstrike .playing-card__pip {
+  opacity: 0.55;
+}
+
 /* UNO fronts keep their colour field; skins restyle border and oval. */
 .uno-card.face--midnight-deco { border-color: #d9a441; }
 .uno-card.face--midnight-deco .uno-card__oval { box-shadow: 0 0 0 2px #14234d, 0 0 0 3px #d9a441; }
@@ -249,8 +408,14 @@
 .uno-card.face--crimson-lacquer::before { inset: 1px; border: 1px solid #d9a441; border-radius: inherit; }
 .uno-card.face--nebula { border-color: #c9a6ff; box-shadow: 0 0 8px rgba(180, 130, 255, 0.8); }
 .uno-card.face--molten-core { border-color: #2a160c; box-shadow: 0 0 8px rgba(255, 110, 20, 0.85); }
+.uno-card.face--jade-dynasty { border-color: #e9f5ee; box-shadow: 0 0 0 1px #2f7d5b; }
+.uno-card.face--bauhaus { border-color: #121212; }
+.uno-card.face--aurora { border-color: #9ff0d2; box-shadow: 0 0 8px rgba(90, 240, 170, 0.75); }
+.uno-card.face--thunderstrike { border-color: #c9d8ff; box-shadow: 0 0 8px rgba(120, 165, 255, 0.85); }
 .uno-card.face--nebula .face-art,
-.uno-card.face--molten-core .face-art {
+.uno-card.face--molten-core .face-art,
+.uno-card.face--aurora .face-art,
+.uno-card.face--thunderstrike .face-art {
   mix-blend-mode: screen;
   opacity: 0.55;
 }

@@ -36,7 +36,8 @@ describe("shop", () => {
     const { cookie } = await registerUser();
     const res = await SELF.fetch("http://example.com/api/shop", { headers: { Cookie: cookie } });
     const body = await res.json<{ items: { id: string; price: number }[]; owned: string[]; equipped: string }>();
-    expect(body.items.find((i) => i.id === "midnight-deco")?.price).toBe(8000);
+    expect(body.items.find((i) => i.id === "midnight-deco")?.price).toBe(3000);
+    expect(body.items.find((i) => i.id === "bauhaus")?.price).toBe(1000);
     expect(body.items.find((i) => i.id === "nebula")?.price).toBe(10000);
     expect(body.owned).toEqual(["classic"]);
     expect(body.equipped).toBe("classic");
@@ -60,11 +61,11 @@ describe("shop", () => {
 
   it("allows a purchase that spends the exact balance", async () => {
     const { id, cookie } = await registerUser();
-    await setCredits(id, 8000);
+    await setCredits(id, 3000);
     expect((await post("buy", cookie, { itemId: "midnight-deco" })).status).toBe(200);
   });
 
-  it.each([7999, 0, -500])("refuses a balance of %i", async (credits) => {
+  it.each([2999, 0, -500])("refuses a balance of %i", async (credits) => {
     const { id, cookie } = await registerUser();
     await setCredits(id, credits);
     const res = await post("buy", cookie, { itemId: "midnight-deco" });

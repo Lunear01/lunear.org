@@ -1,11 +1,11 @@
-import { MOLTEN, NEBULA, VERTEX } from "./shaders";
+import { AURORA, MOLTEN, NEBULA, STORM, VERTEX } from "./shaders";
 
 // One shared WebGL canvas for every animated card back on the page. Browsers
 // cap live WebGL contexts at ~16, and a table can show 40+ backs, so each
 // frame renders a 2x2 atlas per skin (4 seed variants) once and blits a cell
 // into each card's 2D canvas.
 
-export type AnimatedSkinId = "nebula" | "molten-core";
+export type AnimatedSkinId = "nebula" | "molten-core" | "aurora" | "thunderstrike";
 
 export const CELL_W = 140;
 export const CELL_H = 196;
@@ -14,7 +14,12 @@ const FRAME_MS = 1000 / 30;
 let lastDraw = 0;
 const VARIANTS = 4;
 
-const SOURCES: Record<AnimatedSkinId, string> = { nebula: NEBULA, "molten-core": MOLTEN };
+const SOURCES: Record<AnimatedSkinId, string> = {
+  nebula: NEBULA,
+  "molten-core": MOLTEN,
+  aurora: AURORA,
+  thunderstrike: STORM,
+};
 
 interface Target {
   ctx: CanvasRenderingContext2D;

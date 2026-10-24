@@ -3,10 +3,17 @@ import { motion } from "motion/react";
 import type { SkinId } from "worker/src/shop/catalog";
 import { usePrefersReducedMotion } from "../../hooks/usePrefersReducedMotion";
 import { type AnimatedSkinId, isAnimatedSkin } from "../renderer";
-import { ERUPTION, GALAXY, VERTEX } from "../shaders";
+import { AURORA_SKY, ERUPTION, GALAXY, TEMPEST, VERTEX } from "../shaders";
 import "./effects.css";
 
 const DURATION = 1.4;
+
+const SHADERS: Record<AnimatedSkinId, string> = {
+  nebula: GALAXY,
+  "molten-core": ERUPTION,
+  aurora: AURORA_SKY,
+  thunderstrike: TEMPEST,
+};
 
 interface SkinMomentProps {
   skin: SkinId;
@@ -70,7 +77,7 @@ function MomentOverlay({ skin, label }: { skin: AnimatedSkinId; label: string })
       };
     }
 
-    const program = link(gl, skin === "nebula" ? GALAXY : ERUPTION);
+    const program = link(gl, SHADERS[skin]);
     let frame = 0;
     if (program) {
       const buf = gl.createBuffer();

@@ -22,11 +22,11 @@
   mix-blend-mode: screen;
 }
 
-.fx-burst__flash--nebula {
+.fx-burst--nebula .fx-burst__flash {
   background: radial-gradient(circle, #fff 0 10%, rgba(200, 160, 255, 0.85) 25%, rgba(90, 200, 255, 0.35) 50%, transparent 70%);
 }
 
-.fx-burst__flash--molten {
+.fx-burst--molten-core .fx-burst__flash {
   background: radial-gradient(circle, #fff6d0 0 10%, rgba(255, 160, 40, 0.9) 28%, rgba(255, 60, 0, 0.35) 52%, transparent 70%);
 }
 
@@ -154,4 +154,63 @@
 
 .seat-aura--molten-core .seat-aura__spin {
   background: conic-gradient(transparent 0 48%, #7a1606 62%, #ff6a00 80%, #ffd27a 93%, transparent);
+}
+
+/* ---------- Aurora and Thunderstrike recolours ---------- */
+
+.fx-burst--aurora .fx-burst__flash {
+  background: radial-gradient(circle, #f2fff8 0 10%, rgba(120, 255, 190, 0.7) 26%, rgba(170, 110, 255, 0.3) 50%, transparent 70%);
+}
+
+.fx-burst--aurora .fx-burst__ring {
+  border-color: rgba(140, 255, 200, 0.9);
+  box-shadow:
+    0 0 12px rgba(90, 240, 170, 0.8),
+    inset 0 0 10px rgba(180, 120, 255, 0.6);
+}
+
+.fx-burst--aurora .fx-burst__shard {
+  background:
+    linear-gradient(90deg, transparent 46%, #f4fbff 50%, transparent 54%),
+    linear-gradient(60deg, transparent 46%, #f4fbff 50%, transparent 54%),
+    linear-gradient(120deg, transparent 46%, #f4fbff 50%, transparent 54%);
+}
+
+.fx-burst--thunderstrike .fx-burst__flash {
+  background: radial-gradient(circle, #ffffff 0 12%, rgba(170, 210, 255, 0.85) 28%, rgba(80, 120, 255, 0.3) 52%, transparent 70%);
+}
+
+.fx-burst--thunderstrike .fx-burst__cracks {
+  stroke: #e6f2ff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px #6fa8ff);
+}
+
+.fx-burst--thunderstrike .fx-burst__ember {
+  background: radial-gradient(circle, #ffffff 0 25%, #9cc6ff 50%, rgba(80, 130, 255, 0) 75%);
+  box-shadow: 0 0 6px rgba(120, 170, 255, 0.9);
+}
+
+/* Moment headlines */
+.fx-moment--aurora .fx-moment__label {
+  color: #e6f7ef;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(80, 220, 160, 0.5);
+}
+
+.fx-moment--thunderstrike .fx-moment__label {
+  color: #eef4ff;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(110, 160, 255, 0.55);
+}
+
+/* Seat auras */
+.seat-aura--aurora .seat-aura__spin {
+  background: conic-gradient(transparent 0 50%, #1fae7a 66%, #6dffc0 82%, #b07cff 94%, transparent);
+}
+
+.seat-aura--thunderstrike .seat-aura__spin {
+  background: conic-gradient(transparent 0 60%, #3a4f7a 72%, #9cc6ff 88%, #ffffff 93%, transparent);
 }

@@ -21,6 +21,14 @@ export function SkinBurst({ skin, burstKey }: SkinBurstProps) {
   return <Burst key={active.key} skin={active.skin} />;
 }
 
+// Nova: flash, rings, flying shards. Shatter: flash, jagged lines, sparks.
+const STYLE: Record<AnimatedSkinId, "nova" | "shatter"> = {
+  nebula: "nova",
+  aurora: "nova",
+  "molten-core": "shatter",
+  thunderstrike: "shatter",
+};
+
 const SHARDS = 14;
 const EMBERS = 18;
 // Jagged crack polylines from the centre, in a -100..100 box.
@@ -38,11 +46,14 @@ function Burst({ skin }: { skin: AnimatedSkinId }) {
   if (done) return null;
   const finish = () => setDone(true);
 
-  if (skin === "nebula") {
+  // Lightning draws instantly and falls straight; lava cracks spread and embers arc.
+  const electric = skin === "thunderstrike";
+
+  if (STYLE[skin] === "nova") {
     return (
-      <span className="fx-burst" aria-hidden="true">
+      <span className={`fx-burst fx-burst--${skin}`} aria-hidden="true">
         <motion.span
-          className="fx-burst__flash fx-burst__flash--nebula"
+          className="fx-burst__flash"
           initial={{ scale: 0, opacity: 0.95 }}
           animate={{ scale: 1.7, opacity: 0 }}
           transition={{ duration: 0.55, ease: "easeOut" }}
@@ -75,9 +86,9 @@ function Burst({ skin }: { skin: AnimatedSkinId }) {
   }
 
   return (
-    <span className="fx-burst" aria-hidden="true">
+    <span className={`fx-burst fx-burst--${skin}`} aria-hidden="true">
       <motion.span
-        className="fx-burst__flash fx-burst__flash--molten"
+        className="fx-burst__flash"
         initial={{ scale: 0.3, opacity: 1 }}
         animate={{ scale: 2.1, opacity: 0 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
@@ -89,7 +100,10 @@ function Burst({ skin }: { skin: AnimatedSkinId }) {
             d={d}
             initial={{ pathLength: 0, opacity: 1 }}
             animate={{ pathLength: 1, opacity: [1, 1, 0] }}
-            transition={{ pathLength: { duration: 0.25, ease: "easeOut" }, opacity: { duration: 1.1, times: [0, 0.6, 1] } }}
+            transition={{
+              pathLength: { duration: electric ? 0.08 : 0.25, ease: "easeOut" },
+              opacity: electric ? { duration: 0.7, times: [0, 0.3, 1] } : { duration: 1.1, times: [0, 0.6, 1] },
+            }}
           />
         ))}
       </svg>
@@ -103,9 +117,13 @@ function Burst({ skin }: { skin: AnimatedSkinId }) {
             key={i}
             className="fx-burst__ember"
             initial={{ x: 0, y: 0, opacity: 1, scale: 1 }}
-            // Up and out, then gravity pulls it down.
-            animate={{ x: [0, x * 0.8, x], y: [0, y * 0.8 - 26, y + 34], opacity: [1, 1, 0], scale: [1, 1, 0.4] }}
-            transition={{ duration: 1.1, ease: "easeOut" }}
+            // Embers go up and out, then fall; sparks fly straight and fade fast.
+            animate={
+              electric
+                ? { x: [0, x * 1.2], y: [0, y * 1.2], opacity: [1, 0], scale: [1, 0.3] }
+                : { x: [0, x * 0.8, x], y: [0, y * 0.8 - 26, y + 34], opacity: [1, 1, 0], scale: [1, 1, 0.4] }
+            }
+            transition={{ duration: electric ? 0.5 : 1.1, ease: "easeOut" }}
             onAnimationComplete={i === 0 ? finish : undefined}
           />
         );
