@@ -154,7 +154,8 @@ export function classifyCombo(cards: readonly Card[]): Combo | null {
 /** True if `next` legally beats `previous` under standard Dou Dizhu comparison. */
 export function beats(previous: Combo, next: Combo): boolean {
   if (previous.category === "rocket") return false; // unbeatable
-  if (next.category === "rocket") return true; // rocket beats everything else
+  // House rule: rocket beats everything except a pair.
+  if (next.category === "rocket") return previous.category !== "pair";
   if (next.category === "bomb") {
     if (previous.category !== "bomb") return true; // bomb beats any non-bomb, non-rocket
     return next.mainRank > previous.mainRank; // bigger bomb beats smaller bomb

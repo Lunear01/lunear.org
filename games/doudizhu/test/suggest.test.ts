@@ -139,6 +139,12 @@ describe("suggestPlay: null when unbeatable", () => {
     expect(suggestPlay(h, lastPlay)).toBeNull();
   });
 
+  it("pair '2' was played and hand's only answer is a rocket", () => {
+    const h = hand(["BJ", "RJ", "3S"]);
+    const lastPlay = combo(["2S", "2H"]);
+    expect(suggestPlay(h, lastPlay)).toBeNull();
+  });
+
   it("single '2' was played and hand has no bomb/rocket to answer with", () => {
     const h = hand(["3S", "4S", "5S"]);
     const lastPlay = combo(["2H"]);

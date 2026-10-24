@@ -227,6 +227,11 @@ describe("beats: comparison matrix", () => {
     expect(beats(bomb9, rocket)).toBe(true);
   });
 
+  it("rocket can't beat a pair", () => {
+    expect(beats(pair5, rocket)).toBe(false);
+    expect(beats(classify(["4S"])!, rocket)).toBe(true);
+  });
+
   it("nothing beats rocket, not even another bomb", () => {
     expect(beats(rocket, bomb9)).toBe(false);
     expect(beats(rocket, rocket)).toBe(false);

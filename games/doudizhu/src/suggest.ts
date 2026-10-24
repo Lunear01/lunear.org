@@ -287,7 +287,7 @@ function suggestBeat(hand: readonly Card[], lastPlay: Combo, allowBombs: boolean
   const bomb = bestForCategory(hand, "bomb", 1, bombMinRank);
   if (bomb) return bomb;
 
-  return bestRocket(hand);
+  return lastPlay.category === "pair" ? null : bestRocket(hand);
 }
 
 function suggestLead(hand: readonly Card[], allowBombs: boolean): Card[] {
