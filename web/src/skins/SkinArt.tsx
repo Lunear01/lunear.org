@@ -65,7 +65,7 @@ function AnimatedBack({ skin, index }: { skin: AnimatedSkinId; index: number }) 
             animate={{ opacity: [0.25, 0.85, 0.25] }}
             transition={{ duration: 2.8, ease: "easeInOut", repeat: Infinity, delay: Math.min(index, 20) * 0.12 }}
           />
-          <Ambient skin={skin} index={index} />
+          <Ambient skin={skin} index={index} particles={0} />
         </>
       )}
     </span>

@@ -7,8 +7,11 @@ import { MOLTEN, NEBULA, VERTEX } from "./shaders";
 
 export type AnimatedSkinId = "nebula" | "molten-core";
 
-export const CELL_W = 200;
-export const CELL_H = 280;
+export const CELL_W = 140;
+export const CELL_H = 196;
+// Card shaders drift slowly; 30 fps halves GPU cost without visible loss.
+const FRAME_MS = 1000 / 30;
+let lastDraw = 0;
 const VARIANTS = 4;
 
 const SOURCES: Record<AnimatedSkinId, string> = { nebula: NEBULA, "molten-core": MOLTEN };
@@ -140,7 +143,10 @@ function render(time: number) {
 function tick(now: number) {
   frame = 0;
   if (document.hidden || targets.size === 0) return;
-  render((now - start) / 1000);
+  if (now - lastDraw >= FRAME_MS || reducedMotion.matches) {
+    lastDraw = now;
+    render((now - start) / 1000);
+  }
   if (!reducedMotion.matches) frame = requestAnimationFrame(tick);
 }
 

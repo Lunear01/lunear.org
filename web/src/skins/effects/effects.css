@@ -97,27 +97,24 @@
   position: relative;
   padding: 0 16px;
   text-align: center;
-  font-size: clamp(2rem, 9vw, 5rem);
-  font-weight: 900;
+  font-size: clamp(1.6rem, 6vw, 3.2rem);
+  font-weight: 800;
   text-transform: uppercase;
 }
 
 /* Solid colour + glow: gradient-clipped text renders blank on an animating layer in Chrome. */
 .fx-moment--nebula .fx-moment__label {
-  color: #f1e8ff;
+  color: #ece6f7;
   text-shadow:
-    0 0 6px #c9a6ff,
-    0 0 18px #8a5cff,
-    -3px 0 22px rgba(95, 224, 255, 0.9),
-    3px 0 22px rgba(255, 122, 217, 0.9);
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(150, 120, 220, 0.55);
 }
 
 .fx-moment--molten-core .fx-moment__label {
-  color: #fff3d0;
+  color: #f7ead6;
   text-shadow:
-    0 0 6px #ffb347,
-    0 0 18px #ff6a00,
-    0 4px 28px rgba(255, 40, 0, 0.95);
+    0 1px 2px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(230, 120, 40, 0.5);
 }
 
 /* ---------- Seat aura ---------- */

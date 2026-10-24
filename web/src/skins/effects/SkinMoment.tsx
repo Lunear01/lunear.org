@@ -6,7 +6,7 @@ import { type AnimatedSkinId, isAnimatedSkin } from "../renderer";
 import { ERUPTION, GALAXY, VERTEX } from "../shaders";
 import "./effects.css";
 
-const DURATION = 2.8;
+const DURATION = 1.4;
 
 interface SkinMomentProps {
   skin: SkinId;
@@ -57,8 +57,8 @@ function MomentOverlay({ skin, label }: { skin: AnimatedSkinId; label: string })
     const canvas = document.createElement("canvas");
     canvas.className = "fx-moment__canvas";
     host.prepend(canvas);
-    // Own short-lived context; half resolution keeps the fill cost low.
-    const scale = 0.5;
+    // Own short-lived context at low resolution (soft glow upscales cleanly); cap pixel count.
+    const scale = Math.min(0.3, 480 / window.innerWidth);
     canvas.width = Math.round(window.innerWidth * scale);
     canvas.height = Math.round(window.innerHeight * scale);
     const gl = canvas.getContext("webgl", { premultipliedAlpha: true, alpha: true });
@@ -87,7 +87,7 @@ function MomentOverlay({ skin, label }: { skin: AnimatedSkinId; label: string })
       const start = performance.now();
       const tick = (now: number) => {
         const t = (now - start) / 1000;
-        const fade = Math.min(1, t / 0.25) * Math.min(1, Math.max(0, (DURATION - t) / 0.7));
+        const fade = Math.min(1, t / 0.15) * Math.min(1, Math.max(0, (DURATION - t) / 0.45));
         gl.uniform1f(uTime, t);
         gl.uniform1f(uFade, fade);
         gl.clearColor(0, 0, 0, 0);
@@ -110,9 +110,9 @@ function MomentOverlay({ skin, label }: { skin: AnimatedSkinId; label: string })
     <div ref={hostRef} className={`fx-moment fx-moment--${skin}`} aria-live="polite">
       <motion.div
         className="fx-moment__label"
-        initial={{ scale: 0.3, opacity: 0, letterSpacing: "0.6em" }}
-        animate={{ scale: [0.3, 1.12, 1, 1], opacity: [0, 1, 1, 0], letterSpacing: ["0.6em", "0.08em", "0.04em", "0.04em"] }}
-        transition={{ duration: DURATION, times: [0, 0.18, 0.75, 1], ease: "easeOut" }}
+        initial={{ scale: 0.92, opacity: 0, y: 8 }}
+        animate={{ scale: [0.92, 1, 1, 1], opacity: [0, 1, 1, 0], y: [8, 0, 0, 0] }}
+        transition={{ duration: DURATION, times: [0, 0.15, 0.7, 1], ease: "easeOut" }}
       >
         {label}
       </motion.div>

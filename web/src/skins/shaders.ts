@@ -41,7 +41,7 @@ float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
   mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 4; i++) {
     v += a * noise(p);
     p = rot * p * 2.03 + 11.7;
     a *= 0.5;
@@ -165,7 +165,6 @@ void main() {
 
   vec2 wp = p * 2.1 + vec2(fbm(p * 1.3 + t * 0.05), fbm(p * 1.3 - t * 0.04)) * 0.9;
   vec2 v = voronoi(wp, t);
-  vec2 v2 = voronoi(wp * 2.3 + 4.0, t * 1.3);
 
   // Lava: upward-flowing noise, brighter toward the card's core.
   float flow = fbm(p * 2.6 + vec2(0.0, -t * 0.45) + u_seed);
@@ -175,18 +174,17 @@ void main() {
   float lava = (0.45 + 0.55 * flow) * (0.65 + 0.35 * flow2) * (0.6 + 0.6 * core) * (0.75 + 0.25 * heat);
 
   float crack = smoothstep(0.075, 0.0, v.y);
-  float fine = smoothstep(0.035, 0.0, v2.y) * 0.55;
-  float glow = exp(-v.y * 14.0) * 0.55 + exp(-v2.y * 22.0) * 0.18;
+  float glow = exp(-v.y * 14.0) * 0.6;
 
   // Obsidian plates: dark, faintly glossy, lit from the cracks.
   float plate = fbm(wp * 3.0 + 2.0);
   vec3 rock = vec3(0.035, 0.03, 0.035) + vec3(0.06, 0.05, 0.06) * plate;
   rock += vec3(0.22, 0.24, 0.3) * pow(max(0.0, 1.0 - v.x * 1.6), 6.0) * 0.25;
   vec3 col = rock + fireRamp(lava * 0.8) * glow;
-  col = mix(col, fireRamp(lava * 1.25 + 0.15), max(crack, fine * lava));
+  col = mix(col, fireRamp(lava * 1.25 + 0.15), crack);
 
   // Rising embers.
-  for (int i = 0; i < 14; i++) {
+  for (int i = 0; i < 8; i++) {
     float fi = float(i);
     vec2 h = hash2(vec2(fi, u_seed * 3.0 + 1.0));
     float speed = 0.18 + h.y * 0.25;
@@ -223,9 +221,10 @@ vec2 screenSpace() {
 }
 
 void emit(vec3 col) {
-  // Capped so the table stays readable underneath.
-  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 0.8) * u_fade;
-  gl_FragColor = vec4(min(col, vec3(1.0)) * u_fade, a);
+  // Dimmed and capped so the table stays readable underneath.
+  col = min(col * 0.7, vec3(1.0));
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 0.5) * u_fade;
+  gl_FragColor = vec4(col * u_fade, a);
 }
 `;
 
@@ -241,8 +240,8 @@ void main() {
   float arms = pow(0.5 + 0.5 * cos(spin * 2.0), 2.5);
   float n = fbm(vec2(spin * 0.9, r * 5.0 - t * 0.6));
   float density = arms * (0.45 + 0.9 * n) * exp(-r * 1.35);
-  vec3 col = mix(vec3(0.35, 0.08, 0.85), vec3(0.15, 0.85, 1.0), n) * density * 2.4;
-  col += mix(vec3(1.0, 0.4, 0.8), vec3(1.0, 0.95, 0.85), exp(-r * 9.0)) * exp(-r * r * 10.0) * 1.6;
+  vec3 col = mix(vec3(0.28, 0.16, 0.52), vec3(0.3, 0.52, 0.72), n) * density * 1.4;
+  col += mix(vec3(0.7, 0.45, 0.7), vec3(0.9, 0.85, 0.8), exp(-r * 9.0)) * exp(-r * r * 10.0) * 0.7;
 
   // Stars drawn inward along the spiral.
   vec2 sp = vec2(a / 6.2831 + t * 0.05 + 0.6 / (r + 0.3), r * 3.0);
@@ -250,11 +249,11 @@ void main() {
   vec2 id = floor(g);
   float h = hash(id);
   float star = step(0.9, h) * smoothstep(0.35, 0.0, length(fract(g) - 0.5));
-  col += vec3(0.9, 0.9, 1.0) * star * (0.6 + 0.4 * sin(t * 5.0 + h * 40.0)) * smoothstep(1.8, 0.2, r);
+  col += vec3(0.85, 0.85, 0.95) * star * (0.35 + 0.25 * sin(t * 5.0 + h * 40.0)) * smoothstep(1.8, 0.2, r);
 
   // Opening shock ring.
   float ring = smoothstep(0.05, 0.0, abs(r - t * 1.6)) * exp(-t * 1.1);
-  col += vec3(0.85, 0.75, 1.0) * ring * 2.5;
+  col += vec3(0.75, 0.7, 0.9) * ring * 0.9;
 
   emit(col);
 }
@@ -272,21 +271,21 @@ void main() {
   float x = abs(p.x + 0.18 * sin(y * 7.0 - t * 3.5) * y) / width;
   float body = smoothstep(1.0, 0.15, x) * smoothstep(rise, rise - 0.45, y);
   float n = fbm(vec2(p.x * 3.0, y * 4.5 - t * 3.0));
-  vec3 col = fireRamp(body * (0.45 + 0.6 * n)) * 0.8;
+  vec3 col = fireRamp(body * (0.4 + 0.5 * n)) * 0.55;
 
   // Screen-edge heat glow.
   vec2 e = min(v_uv, 1.0 - v_uv);
   float edge = exp(-min(e.x * u_res.x / u_res.y, e.y) * 9.0);
-  col += fireRamp(0.6 + 0.2 * sin(t * 7.0)) * edge * 0.6;
+  col += fireRamp(0.5 + 0.1 * sin(t * 7.0)) * edge * 0.25;
 
   // Ember spray.
-  for (int i = 0; i < 40; i++) {
+  for (int i = 0; i < 18; i++) {
     float fi = float(i);
     vec2 h = hash2(vec2(fi, 7.0));
     float life = fract(h.y + t * (0.35 + h.x * 0.4));
     vec2 pos = vec2((h.x - 0.5) * (0.4 + life * 2.2), -1.0 + life * 2.4 - life * life * 0.6);
     vec2 d = (p - pos) * vec2(1.0, 0.7);
-    col += fireRamp(1.0 - life * 0.6) * exp(-dot(d, d) * 1800.0) * (1.0 - life) * 2.2;
+    col += fireRamp(0.85 - life * 0.5) * exp(-dot(d, d) * 1800.0) * (1.0 - life) * 1.1;
   }
 
   emit(col);
