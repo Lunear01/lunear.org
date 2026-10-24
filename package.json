@@ -11,7 +11,8 @@
     "dev": "concurrently -n worker,web -c blue,green \"npm run dev -w worker\" \"npm run dev -w web\"",
     "build": "npm run build -w web && npm run typecheck -w worker",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "cf-build": "npm run types -w worker && npm test && npm run build && npm run migrate -w worker"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

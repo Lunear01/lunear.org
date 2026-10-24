@@ -9,9 +9,12 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 - [x] Pescalo (Go Fish)
 - [x] UNO: "call UNO" catch penalty
 - [x] Blackjack: insurance and surrender
+- [x] Set the Workers Builds build command to `npm ci && npm run cf-build` (see `docs/deploy.md`)
 
 ## Recent changes
 
+- 2026-10-24 — CD: Workers Builds runs every test suite before deploying (`npm run cf-build`);
+  CI cancels superseded runs. Setup in `docs/deploy.md`.
 - 2026-10-24 — Fight the Landlord: the rocket (both jokers) no longer beats a pair. Blackjack: a
   ten-value up card offers insurance too, so a ten-up dealer blackjack can be insured; the
   between-rounds countdown is 20s and shown on screen, and everyone readying up deals early.
