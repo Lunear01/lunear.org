@@ -182,10 +182,10 @@ function seatDone(player: PlayerRoundState): boolean {
 
 /**
  * Deals two cards to each seat (ascending, one block per seat — same block
- * dealing as poker's dealHoleCards) then two to the dealer. An Ace up card
- * opens the insurance phase before any peek; a ten-value up card with an
- * Ace hole finishes the round at once, as does a table of nothing but
- * player naturals — callers must handle a round that is over at the deal.
+ * dealing as poker's dealHoleCards) then two to the dealer. An Ace or
+ * ten-value up card (house rule: either can hide a natural) opens the
+ * insurance phase before any peek; otherwise a table of nothing but player
+ * naturals finishes at once — callers must handle a round that is over at the deal.
  */
 export function createGame(options: CreateGameOptions): GameState {
   const seats = options.seats.slice().sort((a, b) => a - b);
@@ -226,7 +226,7 @@ export function createGame(options: CreateGameOptions): GameState {
   ];
   const shoe = options.shuffledShoe.slice(seats.length * 2 + 2);
 
-  if (dealerCards[0].rank === 14) {
+  if (dealerCards[0].rank >= 10) {
     return {
       phase: "insurance",
       seats,

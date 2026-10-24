@@ -120,11 +120,12 @@ describe("insurance", () => {
     expect(settle(end)).toEqual({ 0: 100 }); // 150 - 50 insurance
   });
 
-  it("a ten-up Ace-hole natural still finishes at the deal with no insurance offered", () => {
+  it("a ten-up Ace-hole natural is offered insurance and pays it", () => {
     const shoe = buildShoe([0], { hands: { 0: ["Th", "9h"] }, dealer: ["Kd", "Ad"] });
-    const end = finished(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
-    expect(end.insurance).toEqual({});
-    expect(settle(end)).toEqual({ 0: -100 });
+    const state = insurance(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
+    const end = finished(act(state, 0, { type: "insure" }));
+    expect(end.insurance).toEqual({ 0: 50 });
+    expect(settle(end)).toEqual({ 0: 0 }); // -100 hand, +100 insurance
   });
 });
 

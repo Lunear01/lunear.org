@@ -312,7 +312,7 @@ export default function BlackjackTable() {
 
         {insurancePending && (
           <div className="bj-insurance" role="group" aria-label="Insurance">
-            <span className="bj-insurance__label">Dealer shows an Ace. Insure against a blackjack?</span>
+            <span className="bj-insurance__label">Dealer may have blackjack. Insure against it?</span>
             <button type="button" className="button button--primary" onClick={() => send({ type: "insure" })}>
               Insure for {insuranceCost.toLocaleString()}
             </button>

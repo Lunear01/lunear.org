@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createShoe } from "../src/cards";
-import { createGame, handValue, type ActingState, type FinishedState } from "../src/game";
+import { createGame, handValue, type ActingState, type FinishedState, type GameState } from "../src/game";
 import { act, buildShoe, expectRejected, labelsOf } from "./helpers";
 
 function acting(state: ReturnType<typeof createGame>): ActingState {
@@ -54,16 +54,23 @@ describe("the deal", () => {
     expect(state.currentTurn).toBe(1);
   });
 
-  it("a ten-up dealer natural finishes the round at the deal: naturals push, everyone else loses", () => {
+  it("a dealer natural ends the round once insurance is decided: naturals push, everyone else loses", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["Ac", "Kc"], 1: ["Th", "9h"] },
       dealer: ["Qd", "Ad"],
     });
-    const state = finished(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
+    let state: GameState = createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe });
+    for (const seat of [0, 1]) state = act(state, seat, { type: "declineInsurance" });
+    state = finished(state);
     expect(state.outcomes[0][0]).toBe("push");
     expect(state.outcomes[1][0]).toBe("lose");
     expect(state.dealerCards).toHaveLength(2);
     expect(state.insurance).toEqual({});
+  });
+
+  it("a ten-value up card also opens the insurance phase", () => {
+    const shoe = buildShoe([0], { hands: { 0: ["Th", "9h"] }, dealer: ["Kd", "7d"] });
+    expect(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }).phase).toBe("insurance");
   });
 
   it("an Ace up card opens the insurance phase instead of peeking", () => {
@@ -131,7 +138,7 @@ describe("player actions", () => {
   it("double down doubles the bet, draws one card, and ends the turn", () => {
     const shoe = buildShoe([0], {
       hands: { 0: ["6c", "5c"] },
-      dealer: ["Td", "8d"],
+      dealer: ["8d", "Td"],
       draws: ["Th"],
     });
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
@@ -145,7 +152,7 @@ describe("player actions", () => {
   it("double down stays available after a hit", () => {
     const shoe = buildShoe([0], {
       hands: { 0: ["2c", "3c"] },
-      dealer: ["Td", "8d"],
+      dealer: ["8d", "Td"],
       draws: ["6h", "Th"], // 5 -> 11 -> doubles into 21
     });
     let state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
@@ -212,7 +219,7 @@ describe("dealer play", () => {
   it("a dealer bust pays every standing seat", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["Tc", "2c"], 1: ["Th", "9h"] },
-      dealer: ["Td", "6d"],
+      dealer: ["6d", "Td"],
       draws: ["8s"], // dealer 16 -> 24, bust
     });
     let state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
@@ -225,7 +232,7 @@ describe("dealer play", () => {
   it("a player natural still pays 3:2 when the dealer draws to 21", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["Ac", "Kc"], 1: ["Th", "Jh"] },
-      dealer: ["Td", "5d"],
+      dealer: ["5d", "Td"],
       draws: ["6s"], // dealer 15 -> 21, drawn (not a natural)
     });
     const state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));

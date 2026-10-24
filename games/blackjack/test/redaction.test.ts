@@ -5,7 +5,7 @@ import { act, buildShoe, labelsOf } from "./helpers";
 function deal(): ActingState {
   const shoe = buildShoe([0, 2], {
     hands: { 0: ["Ac", "6c"], 2: ["Tc", "9c"] },
-    dealer: ["Kd", "7d"],
+    dealer: ["7d", "Kd"],
   });
   const state = createGame({ seats: [0, 2], stake: 100, shuffledShoe: shoe });
   if (state.phase !== "acting") throw new Error("expected acting");
@@ -17,7 +17,7 @@ describe("viewFor while acting", () => {
     const view = viewFor(deal(), 2);
     if (view.phase !== "acting") throw new Error("expected acting view");
     expect(view.viewer).toBe(2);
-    expect(view.dealerUpCard.id.startsWith("Kd")).toBe(true);
+    expect(view.dealerUpCard.id.startsWith("7d")).toBe(true);
     expect("dealerCards" in view).toBe(false);
     expect("shoe" in view).toBe(false);
     expect(labelsOf(view.players[0].hands[0].cards)).toEqual(["Ac", "6c"]);
@@ -42,10 +42,10 @@ describe("viewFor when finished", () => {
 
     const view = viewFor(end, 0);
     if (view.phase !== "finished") throw new Error("expected finished view");
-    expect(view.dealerTotal).toBe(17); // Kd + 7d
+    expect(view.dealerTotal).toBe(17); // 7d + Kd
     expect(view.dealerBusted).toBe(false);
     expect(view.outcomes[0]).toEqual(["push"]); // soft 17 vs 17
     expect(view.outcomes[2]).toEqual(["win"]); // 19 vs 17
-    expect(labelsOf(view.dealerCards)).toEqual(["Kd", "7d"]);
+    expect(labelsOf(view.dealerCards)).toEqual(["7d", "Kd"]);
   });
 });

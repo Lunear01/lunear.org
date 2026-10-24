@@ -16,7 +16,7 @@ describe("split", () => {
   it("splits a pair into two hands, each with its own bet, played left to right", () => {
     const shoe = buildShoe([0, 1], {
       hands: { 0: ["8c", "8d"], 1: ["Tc", "7c"] },
-      dealer: ["Ts", "7s"],
+      dealer: ["7s", "Ts"],
       draws: ["3h", "2h", "Th", "9h"], // split draws 3h/2h; hand 1 hits Th (21), hand 2 hits 9h (19)
     });
     let state = acting(createGame({ seats: [0, 1], stake: 100, shuffledShoe: shoe }));
@@ -52,7 +52,7 @@ describe("split", () => {
   it("a two-card 21 after a split is a plain 21, not a natural", () => {
     const shoe = buildShoe([0], {
       hands: { 0: ["Ac", "Ad"] },
-      dealer: ["Ts", "7s"],
+      dealer: ["7s", "Ts"],
       draws: ["Kh", "5h"],
     });
     const state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
@@ -91,7 +91,7 @@ describe("split", () => {
   it("cannot split after a hit, and a double on a split hand doubles only that hand", () => {
     const shoe = buildShoe([0], {
       hands: { 0: ["6c", "6d"] },
-      dealer: ["Ts", "7s"],
+      dealer: ["7s", "Ts"],
       draws: ["5h", "4h", "Th", "9h"], // hands 11 and 10; hand 1 doubles into Th (21), hand 2 doubles into 9h (19)
     });
     let state = acting(createGame({ seats: [0], stake: 100, shuffledShoe: shoe }));
@@ -107,7 +107,7 @@ describe("split", () => {
       createGame({
         seats: [0],
         stake: 100,
-        shuffledShoe: buildShoe([0], { hands: { 0: ["3c", "3d"] }, dealer: ["Ts", "7s"], draws: ["2h"] }),
+        shuffledShoe: buildShoe([0], { hands: { 0: ["3c", "3d"] }, dealer: ["7s", "Ts"], draws: ["2h"] }),
       }),
     );
     const afterHit = acting(act(hitFirst, 0, { type: "hit" }));
@@ -119,7 +119,7 @@ describe("per-seat bets", () => {
   it("each seat wagers its own bet, defaulting to the stake, and settles on it", () => {
     const shoe = buildShoe([0, 1, 2], {
       hands: { 0: ["Tc", "9c"], 1: ["Ac", "Kc"], 2: ["Td", "5d"] },
-      dealer: ["Ts", "7s"],
+      dealer: ["7s", "Ts"],
     });
     let state = acting(createGame({ seats: [0, 1, 2], stake: 50, bets: { 0: 300, 1: 75 }, shuffledShoe: shoe }));
     expect(state.players[0].hands[0].bet).toBe(300);
@@ -132,7 +132,7 @@ describe("per-seat bets", () => {
   });
 
   it("rejects a bet below the stake or not a whole number", () => {
-    const shoe = buildShoe([0], { hands: { 0: ["Tc", "9c"] }, dealer: ["Ts", "7s"] });
+    const shoe = buildShoe([0], { hands: { 0: ["Tc", "9c"] }, dealer: ["7s", "Ts"] });
     expect(() => createGame({ seats: [0], stake: 50, bets: { 0: 49 }, shuffledShoe: shoe })).toThrow(/>= stake/);
     expect(() => createGame({ seats: [0], stake: 50, bets: { 0: 50.5 }, shuffledShoe: shoe })).toThrow(/>= stake/);
   });

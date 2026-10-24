@@ -311,7 +311,7 @@ describe("BlackjackTableDO — two seats, natural pays 3:2, not zero-sum", () =>
         [0, "Ac", "Kc"],
         [1, "Th", "Jh"],
       ],
-      ["Ts", "8s"],
+      ["8s", "Ts"],
     );
     await stub.setTestFixedDeal({ shuffledShoe: shoe });
 
@@ -343,8 +343,8 @@ describe("BlackjackTableDO — two seats, natural pays 3:2, not zero-sum", () =>
   });
 });
 
-describe("BlackjackTableDO — ten-up dealer natural ends the round with no player action", () => {
-  it("settles straight from the deal, then auto-deals the next round when the alarm fires", async () => {
+describe("BlackjackTableDO — ten-up dealer natural ends the round after insurance", () => {
+  it("offers insurance, settles once it's declined, then auto-deals the next round when the alarm fires", async () => {
     const tableId = `bj-dealernat-${crypto.randomUUID().slice(0, 8)}`;
     const host = await registerUser("bjdnhost");
     await initTable(tableId, host.cookie, STAKE);
@@ -357,7 +357,9 @@ describe("BlackjackTableDO — ten-up dealer natural ends the round with no play
     const socket = await openTableSocket(tableId, host.cookie);
     send(socket, { type: "ready" });
 
-    // No action was ever possible — 'settled' arrives off the ready itself.
+    // A ten up card offers insurance; declining it runs the peek, which finds the natural.
+    await socket.nextFrameMatching((m) => insuranceView(m) !== null);
+    send(socket, { type: "declineInsurance" });
     const settled = (await socket.nextFrameMatching((m) => m.type === "settled")) as SettledMessage;
     expect(settled.deltas).toEqual({ 0: -STAKE });
     expect(await creditsOf(host.id)).toBe(before - STAKE);
@@ -380,6 +382,7 @@ describe("BlackjackTableDO — ten-up dealer natural ends the round with no play
 
     socket.ws.close();
   });
+
 });
 
 describe("BlackjackTableDO — mid-round leave auto-stands, bet stays live", () => {
@@ -395,7 +398,7 @@ describe("BlackjackTableDO — mid-round leave auto-stands, bet stays live", () 
         [0, "Tc", "9c"],
         [1, "Th", "Jh"],
       ],
-      ["Td", "7d"],
+      ["7d", "Td"],
     );
     await stub.setTestFixedDeal({ shuffledShoe: shoe });
 
@@ -439,7 +442,7 @@ describe("BlackjackTableDO — per-seat bet and split", () => {
 
     const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
     // 8c+8d splits into 8c+3h (hits Th -> 21) and 8d+2h (hits 9h -> 19); dealer stands on 17.
-    const shoe = buildShoe([[0, "8c", "8d"]], ["Ts", "7s"], ["3h", "2h", "Th", "9h"]);
+    const shoe = buildShoe([[0, "8c", "8d"]], ["7s", "Ts"], ["3h", "2h", "Th", "9h"]);
     await stub.setTestFixedDeal({ shuffledShoe: shoe });
 
     const before = await creditsOf(host.id);
@@ -479,7 +482,7 @@ describe("BlackjackTableDO — per-seat bet and split", () => {
     // A bet can't change mid-round, and the chosen bet survives into the auto-dealt next round.
     const fv = finishedView(await socket.nextFrameMatching((m) => finishedView(m) !== null))!;
     expect(fv.outcomes[0]).toEqual(["win", "win"]);
-    await stub.setTestFixedDeal({ shuffledShoe: buildShoe([[0, "Tc", "9c"]], ["Td", "7d"]) });
+    await stub.setTestFixedDeal({ shuffledShoe: buildShoe([[0, "Tc", "9c"]], ["7d", "Td"]) });
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     const next = actingView(await socket.nextFrameMatching((m) => asStateMessage(m)?.handNo === 2 && actingView(m) !== null))!;
     expect(next.players[0].hands[0].bet).toBe(bet);
@@ -498,7 +501,7 @@ describe("BlackjackTableDO — exactly-once settlement", () => {
     await initTable(tableId, host.cookie, STAKE);
 
     const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
-    const shoe = buildShoe([[0, "Tc", "9c"]], ["Td", "7d"]);
+    const shoe = buildShoe([[0, "Tc", "9c"]], ["7d", "Td"]);
     await stub.setTestFixedDeal({ shuffledShoe: shoe });
 
     const socket = await openTableSocket(tableId, host.cookie);
@@ -646,7 +649,7 @@ describe("BlackjackTableDO — surrender", () => {
         [0, "Tc", "6c"],
         [1, "Th", "2h"],
       ],
-      ["Td", "8d"],
+      ["8d", "Td"],
       ["5s"],
     );
     await stub.setTestFixedDeal({ shuffledShoe: shoe });

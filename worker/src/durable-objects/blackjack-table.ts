@@ -44,11 +44,11 @@ export type { InitResult, TableInitParams };
 //    instead of folding it — blackjack has no fold; the bet stays live and
 //    the hand can still win. During the insurance phase it auto-DECLINES
 //    instead. The seat is freed once the round settles.
-//  - createGame can return an already-finished round (ten-up dealer natural,
-//    or every seat dealt one) — startNewHand settles it immediately instead
-//    of waiting for actions that will never come. An Ace up card instead
-//    opens the engine's insurance phase, which counts as an active round
-//    here exactly like acting does.
+//  - createGame can return an already-finished round (every seat dealt a
+//    natural) — startNewHand settles it immediately instead of waiting for
+//    actions that will never come. An Ace or ten-value up card opens the
+//    engine's insurance phase, which counts as an active round here exactly
+//    like acting does.
 //  - `handNo` counts dealt rounds (blackjack's per-seat cards are "hands",
 //    but the wire field keeps poker's name so the client hooks stay parallel).
 //  - Settlement deltas are against the house, not zero-sum — the ledger

@@ -13,7 +13,7 @@ function playedOut(stake: number): FinishedState {
       3: ["Th", "8h"],
       4: ["Td", "7d"],
     },
-    dealer: ["Ts", "8s"],
+    dealer: ["8s", "Ts"],
     draws: ["Th", "5d"], // seat 1's double card (21), seat 2's bust card
   });
   let state = createGame({ seats: [0, 1, 2, 3, 4], stake, shuffledShoe: shoe });
