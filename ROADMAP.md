@@ -12,6 +12,9 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-24 — Fight the Landlord: the rocket (both jokers) no longer beats a pair. Blackjack: a
+  ten-value up card offers insurance too, so a ten-up dealer blackjack can be insured; the
+  between-rounds countdown is 20s and shown on screen, and everyone readying up deals early.
 - 2026-10-13 — Chu Dai D: 3 is the highest card and 4 the lowest (straight ladder shifts to
   4-5-6-7-8 … J-Q-K-A-2, then 2-3-4-5-6, then 3-4-5-6-7), plus a Hint button. The player who
   made the last play is named under it in Fight the Landlord and UNO, as in Chu Dai D.

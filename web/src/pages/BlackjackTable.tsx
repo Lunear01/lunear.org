@@ -84,8 +84,8 @@ export default function BlackjackTable() {
     useBlackjackSocket(tableId);
   const reducedMotion = usePrefersReducedMotion();
 
-  // Ticks while the auto-deal countdown is live. No timer is shown; the
-  // countdown window still gates the delta chips, winner glow, and ready-up.
+  // Ticks while the auto-deal countdown is live; it drives the "Next round in Ns"
+  // line and gates the delta chips and winner glow.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (nextHand === null) return;
@@ -95,6 +95,7 @@ export default function BlackjackTable() {
 
   const countdownMsLeft = nextHand !== null ? nextHand - now : null;
   const countdownActive = countdownMsLeft !== null && countdownMsLeft > -NEXT_HAND_GRACE_MS;
+  const countdownSeconds = countdownMsLeft !== null ? Math.max(0, Math.ceil(countdownMsLeft / 1000)) : 0;
 
   const mySeat = useMemo<Seat | null>(() => {
     if (view) return view.viewer;
@@ -134,7 +135,7 @@ export default function BlackjackTable() {
   const insuranceCost = myPlayer ? Math.floor(myPlayer.hands[0].bet / 2) : 0;
 
   const betweenRounds = view === null || view.phase === "finished";
-  const canReadyUp = mySeat !== null && !countdownActive && betweenRounds;
+  const canReadyUp = mySeat !== null && betweenRounds;
 
   const isMyTurn =
     view?.phase === "acting" && view.currentTurn === mySeat && myActiveHand !== null && !myActiveHand.done;
@@ -284,6 +285,11 @@ export default function BlackjackTable() {
           </p>
         )}
 
+        {mySeatRow && betweenRounds && countdownActive && (
+          <p className="pk-self__committed" role="status">
+            {countdownSeconds > 0 ? `Next round in ${countdownSeconds}s` : "Dealing next round…"}
+          </p>
+        )}
         {mySeatRow && betweenRounds && (
           <div className="bj-bet">
             <span className="bj-bet__label">Bet (min {stake.toLocaleString()})</span>

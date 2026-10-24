@@ -55,15 +55,17 @@ export type { InitResult, TableInitParams };
 //    records per-user deltas only, so nothing needs a counterparty row.
 //  - The stake is the table's minimum bet. Each seat row remembers its own
 //    bet (set by a 'bet' message between rounds, stake by default) and the
-//    auto-deal alarm reuses it.
+//    auto-deal alarm reuses it. Every seat readying up during the countdown
+//    deals early.
 
 const MIN_SEATS_TO_START = 1;
 const MAX_SEATS = 5;
 const ALL_SEATS: readonly Seat[] = [0, 1, 2, 3, 4];
 
 // How long after a settled round's broadcast the table waits before either
-// auto-dealing the next round or falling back to manual ready-up.
-const NEXT_HAND_DELAY_MS = 6_000;
+// auto-dealing the next round or falling back to manual ready-up. Long enough
+// to change a bet.
+const NEXT_HAND_DELAY_MS = 20_000;
 
 /**
  * TEST-ONLY fixed shoe, consumed once by drawRoundShoe() in place of a
@@ -470,12 +472,8 @@ export class BlackjackTableDO extends DurableObject<Env> {
       this.sendErrorToSeat(seat, "game-in-progress", "cannot ready up while a round is active");
       return;
     }
-    const meta = this.loadMetaRow();
-    if (meta?.nextHandAt != null) {
-      // The auto-deal countdown is running — a manual ready click is accepted
-      // but ignored so it can never race the alarm into dealing twice.
-      return;
-    }
+    // Safe during the auto-deal countdown: startNewHand clears next_hand_at
+    // and the alarm, so the countdown can't deal a second time.
     this.ctx.storage.sql.exec("UPDATE seats SET ready = 1 WHERE seat = ?", seat);
     const seatRows = this.loadSeats();
     if (seatRows.length >= MIN_SEATS_TO_START && seatRows.every((s) => s.ready === 1)) {

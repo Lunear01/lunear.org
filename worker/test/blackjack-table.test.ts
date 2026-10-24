@@ -383,6 +383,25 @@ describe("BlackjackTableDO — ten-up dealer natural ends the round after insura
     socket.ws.close();
   });
 
+  it("deals early when every seat readies up during the countdown", async () => {
+    const tableId = `bj-early-${crypto.randomUUID().slice(0, 8)}`;
+    const host = await registerUser("bjearly");
+    await initTable(tableId, host.cookie, STAKE);
+
+    const stub = env.BLACKJACK_TABLE_DO.getByName(tableId);
+    await stub.setTestFixedDeal({ shuffledShoe: buildShoe([[0, "Th", "9h"]], ["Kd", "Ad"]) });
+
+    const socket = await openTableSocket(tableId, host.cookie);
+    send(socket, { type: "ready" });
+    await socket.nextFrameMatching((m) => insuranceView(m) !== null);
+    send(socket, { type: "declineInsurance" });
+    await socket.nextFrameMatching((m) => asNextHandMessage(m) !== null);
+
+    send(socket, { type: "ready" });
+    await socket.nextFrameMatching((m) => asStateMessage(m)?.handNo === 2);
+
+    socket.ws.close();
+  });
 });
 
 describe("BlackjackTableDO — mid-round leave auto-stands, bet stays live", () => {
