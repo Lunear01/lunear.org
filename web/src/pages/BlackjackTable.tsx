@@ -120,6 +120,7 @@ export default function BlackjackTable() {
   const mySeatRow = mySeat !== null ? seats?.find((s) => s.seat === mySeat) : undefined;
   const amReady = mySeatRow?.ready ?? false;
   const filledSeats = seats?.filter((s) => s.userId !== null).length ?? 0;
+  const readySeats = seats?.filter((s) => s.userId !== null && s.ready).length ?? 0;
 
   // Unlike poker, a seated occupant skipped at deal time still receives the
   // live view (all blackjack hands are public) — being absent from
@@ -236,6 +237,13 @@ export default function BlackjackTable() {
             seatLabel={seatLabel}
             skippedThisRound={skippedThisRound}
             reducedMotion={reducedMotion}
+            countdown={
+              betweenRounds && countdownActive
+                ? countdownSeconds > 0
+                  ? `Next round in ${countdownSeconds}s · ${readySeats}/${filledSeats} ready`
+                  : "Dealing next round…"
+                : null
+            }
           />
         </div>
 
@@ -285,11 +293,6 @@ export default function BlackjackTable() {
           </p>
         )}
 
-        {mySeatRow && betweenRounds && countdownActive && (
-          <p className="pk-self__committed" role="status">
-            {countdownSeconds > 0 ? `Next round in ${countdownSeconds}s` : "Dealing next round…"}
-          </p>
-        )}
         {mySeatRow && betweenRounds && (
           <div className="bj-bet">
             <span className="bj-bet__label">Bet (min {stake.toLocaleString()})</span>
@@ -360,7 +363,13 @@ export default function BlackjackTable() {
 
           {canReadyUp && (
             <button type="button" className="button button--primary" disabled={amReady} onClick={handleReady}>
-              {amReady ? "Waiting for others…" : view === null ? "Ready" : "Ready for next round"}
+              {amReady
+                ? "Waiting for others…"
+                : countdownActive
+                  ? "Ready — skip the wait"
+                  : view === null
+                    ? "Ready"
+                    : "Ready for next round"}
             </button>
           )}
         </div>
@@ -496,6 +505,7 @@ function DealerArea({
   seatLabel,
   skippedThisRound,
   reducedMotion,
+  countdown,
 }: {
   view: RedactedView | null;
   filledSeats: number;
@@ -503,6 +513,8 @@ function DealerArea({
   seatLabel: (seat: Seat) => string;
   skippedThisRound: boolean;
   reducedMotion: boolean;
+  /** Between-rounds countdown line, or null when none is running. */
+  countdown: string | null;
 }) {
   if (!view) {
     return (
@@ -548,6 +560,11 @@ function DealerArea({
             : view.dealerBusted
               ? `Dealer busts (${view.dealerTotal})`
               : `Dealer stands on ${view.dealerTotal}`}
+        </p>
+      )}
+      {countdown !== null && (
+        <p className="table-center__turn" role="timer">
+          {countdown}
         </p>
       )}
     </>
