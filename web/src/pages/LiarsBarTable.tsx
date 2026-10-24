@@ -266,7 +266,7 @@ export default function LiarsBarTable() {
         </div>
       </div>
 
-      {view && <LiarsBarMoment seats={seats} view={view} round={round} />}
+      {view && <LiarsBarMoment seats={seats} view={view} round={round} revealOpen={finalRevealOpen} />}
 
       {roundEndView && (
         <LiarsBarRevealOverlay
@@ -396,14 +396,19 @@ function LiarsBarMoment({
   seats,
   view,
   round,
+  revealOpen,
 }: {
   seats: readonly SeatStatus[] | null;
   view: RedactedView;
   round: number;
+  /** Final reveal still on screen; the moment waits for it to close. */
+  revealOpen: boolean;
 }) {
   const winner = view.phase === "finished" ? view.winner : null;
   const held = winner !== null ? { key: `win-${round}`, seat: winner } : null;
-  const momentKey = useFreshKey(held?.key ?? null);
+  // Freshness is judged on arrival, so a reload into a finished match stays quiet.
+  const fresh = useFreshKey(held?.key ?? null);
+  const momentKey = revealOpen ? null : fresh;
   return (
     <SkinMoment
       skin={seatSkin(seats, held?.seat ?? -1)}
