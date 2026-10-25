@@ -15,6 +15,7 @@ export type {
   SettledMessage,
   StateMessage,
 } from "worker/src/durable-objects/liarsbar-protocol";
+export type { EmoteMessage } from "worker/src/durable-objects/emote-protocol";
 
 export type {
   Card,

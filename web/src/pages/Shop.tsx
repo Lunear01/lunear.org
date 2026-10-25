@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { motion } from "motion/react";
 import type { SkinId, SkinItem } from "worker/src/shop/catalog";
 import { ApiError } from "../api/client";
-import { type ShopState, buyItem, equipItem, fetchShop } from "../api/shop";
+import type { EmoteItem } from "worker/src/shop/emotes";
+import { EMOTE_BUNDLES } from "worker/src/shop/emotes";
+import { type ShopState, buyEmote, buyItem, equipItem, fetchShop } from "../api/shop";
 import { useAuth } from "../context/AuthContext";
 import { PokerCard } from "../components/PokerCard";
 import { SkinArt, skinHostClass } from "../skins/SkinArt";
@@ -21,7 +24,8 @@ const KIND_LABEL: Record<SkinItem["kind"], string> = { default: "Default", stati
 export default function Shop() {
   const { user, refresh } = useAuth();
   const [state, setState] = useState<ShopState | null>(null);
-  const [busy, setBusy] = useState<SkinId | null>(null);
+  /** Item id (skin or emote) with a request in flight. */
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,11 +34,11 @@ export default function Shop() {
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "could not load the shop"));
   }, []);
 
-  const run = async (itemId: SkinId, action: (id: SkinId) => Promise<ShopState>) => {
+  const run = async (itemId: string, request: () => Promise<ShopState>) => {
     setBusy(itemId);
     setError(null);
     try {
-      setState(await action(itemId));
+      setState(await request());
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "something went wrong");
@@ -51,15 +55,20 @@ export default function Shop() {
     <div className="page">
       <h1 className="page__title">Shop</h1>
       <p className="shop__intro">
-        Card backs show on your face-down cards for everyone at the table. Balance:{" "}
-        <strong className={state.credits < 0 ? "shop__credits--negative" : ""}>{state.credits.toLocaleString()}</strong> credits.
+        Balance: <strong className={state.credits < 0 ? "shop__credits--negative" : ""}>{state.credits.toLocaleString()}</strong> credits.
       </p>
+      <nav className="shop__nav" aria-label="Shop sections">
+        <a href="#skins">Card skins</a>
+        <a href="#emotes">Emotes</a>
+      </nav>
       {user?.is_guest && (
         <p className="shop__notice">
           Guests can preview skins but not buy them. <Link to="/register">Register</Link> to keep what you buy.
         </p>
       )}
       {error && <p className="field-error" role="alert">{error}</p>}
+      <h2 id="skins" className="shop__section">Card skins</h2>
+      <p className="shop__intro">Your skin shows on the cards you hold and play, for everyone at the table.</p>
       <div className="shop-grid">
         {state.items.map((item) => (
           <ShopItem
@@ -70,10 +79,79 @@ export default function Shop() {
             credits={state.credits}
             guest={user?.is_guest ?? false}
             busy={busy === item.id}
-            onBuy={() => void run(item.id, buyItem)}
-            onEquip={() => void run(item.id, equipItem)}
+            onBuy={() => void run(item.id, () => buyItem(item.id))}
+            onEquip={() => void run(item.id, () => equipItem(item.id))}
           />
         ))}
+      </div>
+      <h2 id="emotes" className="shop__section">Emotes</h2>
+      <p className="shop__intro">
+        Aim one at another player in any game; everyone at the table sees it. Each use spends one.
+      </p>
+      <div className="shop-grid shop-grid--emotes">
+        {state.emotes.map((emote) => (
+          <EmoteCard
+            key={emote.id}
+            emote={emote}
+            owned={state.emoteStock[emote.id] ?? 0}
+            credits={state.credits}
+            guest={user?.is_guest ?? false}
+            busy={busy === emote.id}
+            onBuy={(quantity) => void run(emote.id, () => buyEmote(emote.id, quantity))}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmoteCard({
+  emote,
+  owned,
+  credits,
+  guest,
+  busy,
+  onBuy,
+}: {
+  emote: EmoteItem;
+  owned: number;
+  credits: number;
+  guest: boolean;
+  busy: boolean;
+  onBuy: (quantity: number) => void;
+}) {
+  return (
+    <div className="emote-card">
+      <motion.span
+        className="emote-card__glyph"
+        aria-hidden="true"
+        animate={{ y: [0, -5, 0], rotate: [0, -6, 6, 0] }}
+        transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+      >
+        {emote.glyph}
+      </motion.span>
+      <div className="emote-card__body">
+        <h3 className="emote-card__name">{emote.name}</h3>
+        <p className="emote-card__meta">
+          {emote.price} credits each · you have {owned}
+        </p>
+      </div>
+      <div className="emote-card__buy">
+        {EMOTE_BUNDLES.map((quantity) => {
+          const total = emote.price * quantity;
+          return (
+            <button
+              key={quantity}
+              type="button"
+              className="button button--primary button--small"
+              disabled={busy || guest || credits < total}
+              title={guest ? "Register to buy" : credits < total ? "Not enough credits" : undefined}
+              onClick={() => onBuy(quantity)}
+            >
+              ×{quantity} · {total}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

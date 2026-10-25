@@ -10,6 +10,7 @@
 // ever needs to render 'state' and 'settled' (plus 'error').
 import type { RedactedView, RejectionReason, Seat } from "poker";
 import type { SkinId } from "../shop/catalog";
+import type { EmoteClientMessage, EmoteErrorCode, EmoteMessage } from "./emote-protocol";
 
 export type { Seat };
 
@@ -22,7 +23,8 @@ export type ClientMessage =
   | { readonly type: "call" }
   | { readonly type: "bet"; readonly amount: number }
   | { readonly type: "raise"; readonly toAmount: number }
-  | { readonly type: "leave" };
+  | { readonly type: "leave" }
+  | EmoteClientMessage;
 
 /**
  * Runtime-validates an arbitrary decoded JSON payload into a ClientMessage.
@@ -31,7 +33,7 @@ export type ClientMessage =
  * `amount`, which would otherwise be rejected deep inside the engine with a
  * less specific error, or worse, coerced unexpectedly).
  */
-export function parseClientMessage(raw: unknown): ClientMessage | null {
+export function parseClientMessage(raw: unknown): Exclude<ClientMessage, EmoteClientMessage> | null {
   if (raw === null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
@@ -114,7 +116,7 @@ export interface StateMessage {
   readonly view: RedactedView | null;
 }
 
-export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | RejectionReason;
+export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | RejectionReason | EmoteErrorCode;
 
 export interface ErrorMessage {
   readonly type: "error";
@@ -146,4 +148,4 @@ export interface NextHandMessage {
 
 // No 'aborted' message — poker never voids a hand for anyone; see the file
 // header above and PokerTableDO's own doc comment for the full rationale.
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | NextHandMessage;
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | NextHandMessage | EmoteMessage;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { getGuestToken } from "../api/client";
 import type {
   ClientMessage,
+  EmoteMessage,
   ErrorMessage,
   RedactedView,
   Seat,
@@ -21,6 +22,8 @@ interface BlackjackSocketState {
   view: RedactedView | null;
   error: ErrorMessage | null;
   settled: SettledMessage | null;
+  /** Latest emote; `seq` bumps per message so repeats of the same emote still change state. */
+  lastEmote: (EmoteMessage & { seq: number }) | null;
   /** Every username ever seen for a seat, merged as `state` frames arrive —
    * same carry-forward map as usePokerSocket, and for the same reason: a
    * departed seat's row is freed before the settlement panel renders. */
@@ -43,6 +46,7 @@ const initialState: BlackjackSocketState = {
   view: null,
   error: null,
   settled: null,
+  lastEmote: null,
   usernames: {},
   nextHand: null,
 };
@@ -76,6 +80,8 @@ function reducer(state: BlackjackSocketState, action: Action): BlackjackSocketSt
             usernames,
           };
         }
+        case "emote":
+          return { ...state, lastEmote: { ...msg, seq: (state.lastEmote?.seq ?? 0) + 1 } };
         case "error":
           return { ...state, error: msg };
         case "settled":

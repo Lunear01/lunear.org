@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import type { SkinId } from "worker/src/shop/catalog";
 import { PokerCard } from "../components/PokerCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -40,6 +41,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "cannot-double": "You can't double down on a finished hand.",
   "cannot-split": "You can only split a pair on your first two cards.",
   "cannot-surrender": "You can only surrender before your first hit, double, or split.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 const OUTCOME_LABEL: Record<Outcome, string> = {
@@ -85,7 +89,7 @@ export default function BlackjackTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, handNo, stake, seats, view, error, settled, nextHand, usernames, send, dismissError, retry } =
+  const { status, handNo, stake, seats, view, error, settled, nextHand, usernames, send, dismissError, retry, lastEmote } =
     useBlackjackSocket(tableId);
   const reducedMotion = usePrefersReducedMotion();
 
@@ -381,6 +385,8 @@ export default function BlackjackTable() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
     </div>
   );
 }
@@ -450,7 +456,7 @@ function BjSeat({
     .join(" ");
 
   return (
-    <div className={classes}>
+    <div className={classes} data-emote-seat={isOpen ? undefined : seat}>
       {row && !isOpen && <SeatAura skin={row.cardSkin} active={isCurrentTurn} />}
       {showResult && delta !== 0 && (
         <span key={settled?.handNo} className={`pk-delta-chip ${delta > 0 ? "pk-delta-chip--gain" : "pk-delta-chip--loss"}`}>

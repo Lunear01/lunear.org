@@ -13,6 +13,11 @@ Master TODO list and change log. Codebase questions belong in the folder READMEs
 
 ## Recent changes
 
+- 2026-10-24 — Emotes: a second Shop section sells one-use emotes (30-100 credits, bought 1 or
+  5 at a time) that a player aims at another seated player in any game: tomato, paper plane,
+  coffee, high five, rose, water balloon, cake, champagne. Table DOs share `emote-relay.ts`
+  (stock check, 3 s cooldown, broadcast); pages share `web/src/emotes/`. Plan:
+  `action-plans/emotes.md`.
 - 2026-10-24 — Static skin prices tiered by design complexity: Bauhaus 1,000, Jade Dynasty
   2,000, Crimson Lacquer 2,500, Midnight Deco 3,000. Animated skins stay at 10,000.
 - 2026-10-24 — Four more skins: Jade Dynasty and Bauhaus (static, 8,000), Aurora and

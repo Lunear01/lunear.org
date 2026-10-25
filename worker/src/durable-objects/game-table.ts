@@ -22,6 +22,7 @@ import {
   type SettledMessage,
   type StateMessage,
 } from "./protocol";
+import { EmoteRelay, parseEmoteMessage } from "./emote-relay";
 import { lobbyDoName } from "./lobby";
 import { toSkinId } from "../shop/catalog";
 
@@ -147,6 +148,8 @@ function buildResultSummary(
 }
 
 export class GameTableDO extends DurableObject<Env> {
+  private readonly emotes = new EmoteRelay();
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => this.migrate());
@@ -439,6 +442,20 @@ export class GameTableDO extends DurableObject<Env> {
         raw = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
       } catch {
         this.sendErrorToWs(ws, "bad-message", "invalid JSON");
+        return;
+      }
+      const emote = parseEmoteMessage(raw);
+      if (emote) {
+        const seats = this.loadSeats();
+        const userId = seats.find((s) => s.seat === seat)?.userId ?? attachment.userId;
+        const result = await this.emotes.relay({
+          db: this.env.DB,
+          sockets: this.ctx.getWebSockets(),
+          from: { seat, userId },
+          occupied: seats.map((s) => s.seat),
+          message: emote,
+        });
+        if (!result.ok) this.sendErrorToWs(ws, result.code, result.message);
         return;
       }
       const parsed = parseClientMessage(raw);

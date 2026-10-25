@@ -4,6 +4,7 @@
 // protocol.ts (doudizhu); the action set is play or pass.
 import type { RedactedView, RejectionReason, Seat } from "chudaidi";
 import type { SkinId } from "../shop/catalog";
+import type { EmoteClientMessage, EmoteErrorCode, EmoteMessage } from "./emote-protocol";
 
 export type { Seat };
 
@@ -13,10 +14,11 @@ export type ClientMessage =
   | { readonly type: "ready" }
   | { readonly type: "play"; readonly cardIds: readonly string[] }
   | { readonly type: "pass" }
-  | { readonly type: "leave" };
+  | { readonly type: "leave" }
+  | EmoteClientMessage;
 
 /** Validates decoded JSON into a ClientMessage; null for anything malformed. */
-export function parseClientMessage(raw: unknown): ClientMessage | null {
+export function parseClientMessage(raw: unknown): Exclude<ClientMessage, EmoteClientMessage> | null {
   if (raw === null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
@@ -69,7 +71,8 @@ export type ErrorCode =
   | "game-in-progress"
   | "no-active-hand"
   | "table-aborted"
-  | RejectionReason;
+  | RejectionReason
+  | EmoteErrorCode;
 
 export interface ErrorMessage {
   readonly type: "error";
@@ -91,4 +94,4 @@ export interface AbortedMessage {
   readonly leaver: { readonly seat: Seat; readonly username: string };
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | AbortedMessage;
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | AbortedMessage | EmoteMessage;

@@ -10,6 +10,7 @@
 // 'settled' (plus 'error').
 import type { RedactedView, RejectionReason, Seat } from "blackjack";
 import type { SkinId } from "../shop/catalog";
+import type { EmoteClientMessage, EmoteErrorCode, EmoteMessage } from "./emote-protocol";
 
 export type { Seat };
 
@@ -26,7 +27,8 @@ export type ClientMessage =
   | { readonly type: "declineInsurance" }
   /** Sets this seat's bet for the next round. Between rounds only; must be an integer >= the table stake. */
   | { readonly type: "bet"; readonly amount: number }
-  | { readonly type: "leave" };
+  | { readonly type: "leave" }
+  | EmoteClientMessage;
 
 /** Upper bound on any single bet, before the DO checks it against the stake. */
 export const MAX_BET = 1_000_000;
@@ -36,7 +38,7 @@ export const MAX_BET = 1_000_000;
  * Returns null for anything malformed, so a hostile/buggy client can never
  * reach `applyAction` with a shape it doesn't expect.
  */
-export function parseClientMessage(raw: unknown): ClientMessage | null {
+export function parseClientMessage(raw: unknown): Exclude<ClientMessage, EmoteClientMessage> | null {
   if (raw === null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
@@ -120,7 +122,7 @@ export interface StateMessage {
   readonly view: RedactedView | null;
 }
 
-export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | "invalid-bet" | RejectionReason;
+export type ErrorCode = "bad-message" | "game-in-progress" | "no-active-hand" | "invalid-bet" | RejectionReason | EmoteErrorCode;
 
 export interface ErrorMessage {
   readonly type: "error";
@@ -147,4 +149,4 @@ export interface NextHandMessage {
   readonly at: number;
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | NextHandMessage;
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | NextHandMessage | EmoteMessage;

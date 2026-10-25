@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { UnoCard, UnoCardBack, cardLabel } from "../components/UnoCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinBurst } from "../skins/effects/SkinBurst";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -50,6 +51,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
   "table-aborted": "This game has ended.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -135,7 +139,7 @@ export default function UnoTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, seats, view, error, settled, aborted, send, dismissError } = useUnoSocket(tableId);
+  const { status, seats, view, error, settled, aborted, send, dismissError, lastEmote } = useUnoSocket(tableId);
 
   /** A wild waiting for its colour. */
   const [pendingWild, setPendingWild] = useState<Card | null>(null);
@@ -318,7 +322,7 @@ export default function UnoTable() {
           </>
         )}
 
-        <div className="table-actions">
+        <div className="table-actions" data-emote-seat={mySeat ?? undefined}>
           {canArmUno && (
             <button
               type="button"
@@ -376,6 +380,8 @@ export default function UnoTable() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
 
       {pendingWild && (
         <div className="uno-picker" role="dialog" aria-modal="true" aria-label="Choose a colour">
@@ -477,7 +483,7 @@ function UnoOpponentSeat({
   const isWinner = view?.phase === "finished" && view.winner === seat;
 
   return (
-    <div className={`uno-opponent ${isTurn ? "uno-opponent--turn" : ""}`}>
+    <div className={`uno-opponent ${isTurn ? "uno-opponent--turn" : ""}`} data-emote-seat={seat}>
       {row && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="uno-opponent__cards">
         {count !== null && Array.from({ length: Math.min(count, 12) }).map((_, i) => <UnoCardBack key={i} small skin={row?.cardSkin} index={i} />)}

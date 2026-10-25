@@ -12,6 +12,7 @@ export type {
   SettledMessage,
   StateMessage,
 } from "worker/src/durable-objects/pescalo-protocol";
+export type { EmoteMessage } from "worker/src/durable-objects/emote-protocol";
 
 export type {
   Books,

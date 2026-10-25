@@ -4,6 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { sortHand, suggestPlay } from "chudaidi";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinBurst } from "../skins/effects/SkinBurst";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -47,6 +48,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
   "table-aborted": "This game has ended.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 const COMBO_NAMES: Record<ComboCategory, string> = {
@@ -84,7 +88,8 @@ export default function ChuDaiDTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, round, seats, view, error, settled, aborted, send, dismissError } = useChuDaiDSocket(tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError, lastEmote } =
+    useChuDaiDSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -240,7 +245,7 @@ export default function ChuDaiDTable() {
           </p>
         )}
 
-        <div className="table-actions">
+        <div className="table-actions" data-emote-seat={mySeat ?? undefined}>
           {myTurn && (
             <>
               <button
@@ -277,6 +282,8 @@ export default function ChuDaiDTable() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
 
       {view && <ChuDaiDMoment seats={seats} view={view} round={round} />}
 
@@ -367,7 +374,7 @@ function ChuDaiDOpponentSeat({
   }
 
   return (
-    <div className={`table-opponent cd-opponent ${isTurn ? "cd-opponent--turn" : ""}`}>
+    <div className={`table-opponent cd-opponent ${isTurn ? "cd-opponent--turn" : ""}`} data-emote-seat={seat}>
       <SeatAura skin={row.cardSkin} active={isTurn} />
       <div className="table-opponent__cards">
         {count !== null && count > 0 && view?.phase === "playing"

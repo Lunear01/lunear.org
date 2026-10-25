@@ -772,6 +772,13 @@ a {
   min-height: calc(100vh - 60px);
 }
 
+/* Keeps the bottom action row clear of the floating Emotes button (EmoteBar). */
+@media (max-width: 719px) {
+  .table-page {
+    padding-bottom: 64px;
+  }
+}
+
 .table-topbar {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@
 // one, pass after a draw, call UNO, or catch a seat that forgot to.
 import type { Color, RedactedView, RejectionReason, Seat } from "uno";
 import type { SkinId } from "../shop/catalog";
+import type { EmoteClientMessage, EmoteErrorCode, EmoteMessage } from "./emote-protocol";
 
 export type { Seat };
 
@@ -18,7 +19,8 @@ export type ClientMessage =
   | { readonly type: "pass" }
   | { readonly type: "callUno" }
   | { readonly type: "catchUno"; readonly target: Seat }
-  | { readonly type: "leave" };
+  | { readonly type: "leave" }
+  | EmoteClientMessage;
 
 const COLORS: readonly string[] = ["red", "yellow", "green", "blue"];
 
@@ -27,7 +29,7 @@ const COLORS: readonly string[] = ["red", "yellow", "green", "blue"];
  * Returns null for anything malformed, so a hostile/buggy client can never
  * reach `applyAction` with a shape it doesn't expect.
  */
-export function parseClientMessage(raw: unknown): ClientMessage | null {
+export function parseClientMessage(raw: unknown): Exclude<ClientMessage, EmoteClientMessage> | null {
   if (raw === null || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
@@ -98,7 +100,8 @@ export type ErrorCode =
   | "game-in-progress"
   | "no-active-hand"
   | "table-aborted"
-  | RejectionReason;
+  | RejectionReason
+  | EmoteErrorCode;
 
 export interface ErrorMessage {
   readonly type: "error";
@@ -125,4 +128,4 @@ export interface AbortedMessage {
   readonly leaver: { readonly seat: Seat; readonly username: string };
 }
 
-export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | AbortedMessage;
+export type ServerMessage = StateMessage | ErrorMessage | SettledMessage | AbortedMessage | EmoteMessage;

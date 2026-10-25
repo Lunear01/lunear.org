@@ -5,6 +5,7 @@ import type { SkinId } from "worker/src/shop/catalog";
 import { FlipBack } from "../components/PlayingCard";
 import { PokerCard, PokerCardSlot } from "../components/PokerCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { usePrefersReducedMotion } from "../hooks/usePrefersReducedMotion";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -56,6 +57,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "insufficient-stack": "You don't have enough chips for that.",
   "folded-player-action": "You've already folded this hand.",
   "invalid-amount": "That amount isn't valid.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -192,7 +196,7 @@ export default function PokerTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, handNo, seats, view, error, settled, nextHand, usernames, send, dismissError, retry } =
+  const { status, handNo, seats, view, error, settled, nextHand, usernames, send, dismissError, retry, lastEmote } =
     usePokerSocket(tableId);
   const reducedMotion = usePrefersReducedMotion();
 
@@ -405,6 +409,8 @@ export default function PokerTable() {
         </div>
       </div>
 
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
+
       {settled && countdownActive && terminalView && (
         <NextHandBanner
           view={terminalView}
@@ -506,7 +512,7 @@ function PkSeat({
     .join(" ");
 
   return (
-    <div className={classes}>
+    <div className={classes} data-emote-seat={isOpen ? undefined : seat}>
       {row && !isOpen && <SeatAura skin={row.cardSkin} active={isCurrentTurn} />}
       {showResult && delta !== 0 && (
         <span key={settled?.handNo} className={`pk-delta-chip ${delta > 0 ? "pk-delta-chip--gain" : "pk-delta-chip--loss"}`}>

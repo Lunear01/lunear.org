@@ -4,6 +4,7 @@ import { CardBack } from "../components/PlayingCard";
 import { SkinArt, seatSkin, skinHostClass } from "../skins/SkinArt";
 import { LiarsBarCard } from "../components/LiarsBarCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinBurst } from "../skins/effects/SkinBurst";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -50,6 +51,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A round is already in progress.",
   "no-active-hand": "There's no round in progress right now.",
   "table-aborted": "This game has ended.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -83,7 +87,7 @@ export default function LiarsBarTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, round, seats, view, error, settled, aborted, send, dismissError, continueRoundEnd, revealSeq } =
+  const { status, round, seats, view, error, settled, aborted, send, dismissError, continueRoundEnd, revealSeq, lastEmote } =
     useLiarsBarSocket(tableId);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -231,7 +235,7 @@ export default function LiarsBarTable() {
           </>
         )}
 
-        <div className="table-actions">
+        <div className="table-actions" data-emote-seat={mySeat ?? undefined}>
           {view?.phase === "playing" && mySeat === view.currentTurn && (
             <>
               <button
@@ -265,6 +269,8 @@ export default function LiarsBarTable() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
 
       {view && <LiarsBarMoment seats={seats} view={view} round={round} revealOpen={finalRevealOpen} />}
 
@@ -357,7 +363,7 @@ function LiarsBarOpponentSeat({
   const isTurn = view?.phase === "playing" && view.currentTurn === seat;
 
   return (
-    <div className={`table-opponent ${isDead ? "lb-seat--dead" : ""}`}>
+    <div className={`table-opponent ${isDead ? "lb-seat--dead" : ""}`} data-emote-seat={seat}>
       {row && !isDead && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="table-opponent__cards">
         {isDead ? (

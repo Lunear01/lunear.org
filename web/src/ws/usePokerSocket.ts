@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { getGuestToken } from "../api/client";
 import type {
   ClientMessage,
+  EmoteMessage,
   ErrorMessage,
   RedactedView,
   Seat,
@@ -19,6 +20,8 @@ interface PokerSocketState {
   view: RedactedView | null;
   error: ErrorMessage | null;
   settled: SettledMessage | null;
+  /** Latest emote; `seq` bumps per message so repeats of the same emote still change state. */
+  lastEmote: (EmoteMessage & { seq: number }) | null;
   /**
    * Every username ever seen for a seat, merged (never removed) as `state`
    * frames arrive. Needed because PokerTableDO frees a leaving/departed
@@ -55,6 +58,7 @@ const initialState: PokerSocketState = {
   view: null,
   error: null,
   settled: null,
+  lastEmote: null,
   usernames: {},
   nextHand: null,
 };
@@ -84,6 +88,8 @@ function reducer(state: PokerSocketState, action: Action): PokerSocketState {
           const nextHand = msg.handNo !== state.handNo ? null : state.nextHand;
           return { ...state, handNo: msg.handNo, seats: msg.seats, view: msg.view, settled, nextHand, usernames };
         }
+        case "emote":
+          return { ...state, lastEmote: { ...msg, seq: (state.lastEmote?.seq ?? 0) + 1 } };
         case "error":
           return { ...state, error: msg };
         case "settled":

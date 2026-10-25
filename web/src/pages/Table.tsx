@@ -6,6 +6,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { suggestPlay } from "doudizhu";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinBurst } from "../skins/effects/SkinBurst";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -42,6 +43,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
   "table-aborted": "This game has ended.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 const COMBO_NAMES: Record<Combo["category"], string> = {
@@ -81,7 +85,10 @@ export default function Table() {
   const { gameId = "doudizhu", tableId = "" } = useParams<{ gameId: string; tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, round, seats, view, error, settled, aborted, send, dismissError } = useGameSocket(gameId, tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError, lastEmote } = useGameSocket(
+    gameId,
+    tableId,
+  );
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -261,7 +268,7 @@ export default function Table() {
           </p>
         )}
 
-        <div className="table-actions">
+        <div className="table-actions" data-emote-seat={mySeat ?? undefined}>
           {view?.phase === "bidding" && mySeat === view.currentBidder && (
             <>
               {([1, 2, 3] as const).map((amount) => (
@@ -317,6 +324,8 @@ export default function Table() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
 
       {view && <TableMoments seats={seats} view={view} round={round} />}
 
@@ -392,7 +401,7 @@ function OpponentSeat({
     (view?.phase === "bidding" && view.currentBidder === seat);
 
   return (
-    <div className="table-opponent">
+    <div className="table-opponent" data-emote-seat={seat}>
       {row && <SeatAura skin={row.cardSkin} active={isTurn} />}
       <div className="table-opponent__cards">
         {count !== null && Array.from({ length: count }).map((_, i) => <CardBack key={i} small skin={row?.cardSkin} index={i} />)}

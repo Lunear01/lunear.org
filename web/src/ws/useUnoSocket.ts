@@ -3,6 +3,7 @@ import { getGuestToken } from "../api/client";
 import type {
   AbortedMessage,
   ClientMessage,
+  EmoteMessage,
   ErrorMessage,
   RedactedView,
   SeatStatus,
@@ -19,6 +20,8 @@ interface GameSocketState {
   view: RedactedView | null;
   error: ErrorMessage | null;
   settled: SettledMessage | null;
+  /** Latest emote; `seq` bumps per message so repeats of the same emote still change state. */
+  lastEmote: (EmoteMessage & { seq: number }) | null;
   /** Set once the hand is voided by a leave or a disconnect-grace expiry; an aborted table never resumes. */
   aborted: AbortedMessage | null;
 }
@@ -35,6 +38,7 @@ const initialState: GameSocketState = {
   view: null,
   error: null,
   settled: null,
+  lastEmote: null,
   aborted: null,
 };
 
@@ -52,6 +56,8 @@ function reducer(state: GameSocketState, action: Action): GameSocketState {
           const settled = state.settled && msg.round !== state.settled.round ? null : state.settled;
           return { ...state, round: msg.round, seats: msg.seats, view: msg.view, settled };
         }
+        case "emote":
+          return { ...state, lastEmote: { ...msg, seq: (state.lastEmote?.seq ?? 0) + 1 } };
         case "error":
           return { ...state, error: msg };
         case "aborted":

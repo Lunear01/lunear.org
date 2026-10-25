@@ -541,3 +541,32 @@ describe("ChuDaiDTableDO — seat broadcasts carry card skins", () => {
     s1.ws.close();
   });
 });
+
+describe("ChuDaiDTableDO — emotes", () => {
+  it("relays a spent emote to every seat, then refuses a second send", async () => {
+    const tableId = `t-emote-${crypto.randomUUID().slice(0, 8)}`;
+    const [host, p2] = await Promise.all([registerUser("emhost"), registerUser("emp2")]);
+    await env.DB.prepare("INSERT INTO user_emotes (user_id, emote_id, qty) VALUES (?, 'tomato', 1)").bind(host.id).run();
+    await initTable(tableId, host.cookie, STAKE);
+
+    const s0 = await openTableSocket(tableId, host.cookie);
+    const s1 = await openTableSocket(tableId, p2.cookie);
+    await s0.nextFrameMatching((m) => m.type === "state" && m.seats[1].userId !== null);
+
+    send(s0, { type: "emote", emoteId: "tomato", target: 1 });
+    const expected = { type: "emote", from: 0, to: 1, emoteId: "tomato" };
+    expect(await s0.nextFrameMatching((m) => m.type === "emote")).toEqual(expected);
+    expect(await s1.nextFrameMatching((m) => m.type === "emote")).toEqual(expected);
+    const row = await env.DB.prepare("SELECT qty FROM user_emotes WHERE user_id = ? AND emote_id = 'tomato'")
+      .bind(host.id)
+      .first<{ qty: number }>();
+    expect(row?.qty).toBe(0);
+
+    send(s0, { type: "emote", emoteId: "tomato", target: 1 });
+    const err = await s0.nextFrameMatching((m) => m.type === "error");
+    expect(["emote-empty", "emote-cooldown"]).toContain((err as { code: string }).code);
+
+    s0.ws.close();
+    s1.ws.close();
+  });
+});

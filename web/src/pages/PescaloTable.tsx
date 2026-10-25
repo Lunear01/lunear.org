@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { CardBack, PlayingCard } from "../components/PlayingCard";
 import { useAuth } from "../context/AuthContext";
+import { EmoteBar } from "../emotes/EmoteBar";
 import { SeatAura } from "../skins/effects/SeatAura";
 import { SkinBurst } from "../skins/effects/SkinBurst";
 import { SkinMoment } from "../skins/effects/SkinMoment";
@@ -37,6 +38,9 @@ const FRIENDLY_ERROR: Record<ErrorCode, string> = {
   "game-in-progress": "A hand is already in progress.",
   "no-active-hand": "There's no hand in progress right now.",
   "table-aborted": "This game has ended.",
+  "emote-empty": "You're out of that emote — get more in the Shop.",
+  "emote-cooldown": "Wait a moment before sending another emote.",
+  "emote-target": "Pick another player at this table.",
 };
 
 function friendlyError(err: ErrorMessage): string {
@@ -88,7 +92,8 @@ export default function PescaloTable() {
   const { tableId = "" } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const { user, refresh } = useAuth();
-  const { status, round, seats, view, error, settled, aborted, send, dismissError } = usePescaloSocket(tableId);
+  const { status, round, seats, view, error, settled, aborted, send, dismissError, lastEmote } =
+    usePescaloSocket(tableId);
 
   const [selectedRank, setSelectedRank] = useState<number | null>(null);
   const [target, setTarget] = useState<Seat | null>(null);
@@ -241,7 +246,7 @@ export default function PescaloTable() {
           </>
         )}
 
-        <div className="table-actions">
+        <div className="table-actions" data-emote-seat={mySeat ?? undefined}>
           {myTurn && (
             <button
               type="button"
@@ -265,6 +270,8 @@ export default function PescaloTable() {
           )}
         </div>
       </div>
+
+      <EmoteBar seats={seats} mySeat={mySeat} event={lastEmote} send={send} />
 
       {view && <PescaloMoment seats={seats} view={view} round={round} />}
 
@@ -407,12 +414,16 @@ function PescaloOpponentSeat({
   // Pickable seats are real buttons so a tap (or Enter) picks the target.
   if (onPick) {
     return (
-      <button type="button" className={classes} onClick={onPick} aria-pressed={selected}>
+      <button type="button" className={classes} onClick={onPick} aria-pressed={selected} data-emote-seat={seat}>
         {body}
       </button>
     );
   }
-  return <div className={classes}>{body}</div>;
+  return (
+    <div className={classes} data-emote-seat={seat}>
+      {body}
+    </div>
+  );
 }
 
 /** The sole winner's moment. Mounted from the first view so only wins seen live fire. */
